@@ -49,6 +49,9 @@ def validate_policy_profile(resolved):
         raise ValueError('KL must use the actor loss only, without reward shaping')
     if rollout.get('name')!='vllm' or rollout.get('load_format') not in ('auto','safetensors'):
         raise ValueError('native vLLM must preload the admitted SFT base before adapter transfer')
+    checkpoint_engine=rollout.get('checkpoint_engine',{})
+    if not isinstance(checkpoint_engine,Mapping) or checkpoint_engine.get('backend','naive')!='naive':
+        raise ValueError('native LoRA synchronization requires the verified naive checkpoint backend')
     if actor.get('strategy')=='fsdp2' and rollout.get('layered_summon') is not True:
         raise ValueError('native FSDP2 adapter transfer requires layered_summon=True')
 

@@ -63,6 +63,7 @@
     "actor_rollout_ref.rollout.load_format": "auto",
     "actor_rollout_ref.rollout.layered_summon": true,
     "nested_lora_rank": "absent_or_zero_or_equal_to_model_lora_rank",
-    "validation": "launch_and_native_driver_and_ray_task_before_worker_creation"
+    "validation": "launch_and_native_driver_and_ray_task_before_worker_creation",
+    "actor_rollout_ref.rollout.checkpoint_engine.backend": "naive"
   }
 }

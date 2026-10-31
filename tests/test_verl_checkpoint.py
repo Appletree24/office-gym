@@ -93,9 +93,13 @@ class VerlCheckpointTests(unittest.TestCase):
             observed=observed_trainer_class(Controller,config,evidence)()
             observed._update_actor(Batch())
             self.assertEqual(observed._officegym_optimizer_steps,1)
+            events=[json.loads(line) for line in (root/'training_events.jsonl').read_text().splitlines()]
+            self.assertEqual([row['kind'] for row in events],['optimizer_update_attempt','optimizer_update'])
             observed.global_steps=2;observed.norm=[float('nan')]
             with self.assertRaisesRegex(ValueError,'finite gradient'):observed._update_actor(Batch())
             self.assertEqual(observed._officegym_optimizer_steps,1)
+            events=[json.loads(line) for line in (root/'training_events.jsonl').read_text().splitlines()]
+            self.assertEqual([row['kind'] for row in events],['optimizer_update_attempt','optimizer_update','optimizer_update_attempt'])
             with self.assertRaisesRegex(ValueError,'verified optimizer counter'):observed._save_checkpoint()
 
     def test_recorded_native_step_cannot_be_overwritten(self):

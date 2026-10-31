@@ -6,5 +6,6 @@
   "verl/utils/tracking.py": "c22afac06ddac8d6ddba4c3aa5a5ae4ad0d20170fddb4f6ac6756e2884f075f9",
   "verl/workers/engine_workers.py": "7166ff29e71eb101031ce88aa22feb32f0d960a5e795af0e8116f37aff757ec1",
   "verl/workers/engine/fsdp/transformer_impl.py": "717b595c729469bde375234710b967e5b4a8d39ba93419f7b2a380f080483842",
-  "verl/workers/engine/base.py": "58057882c03110cdcf846fd833085e01e3f517a17dd9400f3c0d0e4bdba6500a"
+  "verl/workers/engine/base.py": "58057882c03110cdcf846fd833085e01e3f517a17dd9400f3c0d0e4bdba6500a",
+  "verl/utils/metric/utils.py": "b17a4ce737d154a2b7ccbf2dc238be48b0d580203133082d3f98e72e70e0e3bd"
 }

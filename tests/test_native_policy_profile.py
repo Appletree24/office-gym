@@ -23,7 +23,7 @@ class NativePolicyTests(unittest.TestCase):
                ('model','lora',{'rank':8}),('model','lora',{'rank':True}),('model','lora',{'merge':True}),
                ('model','lora_adapter_path','/another/adapter'),('actor','use_kl_loss',False),
                ('actor','kl_loss_coef',0),('actor','kl_loss_coef',float('nan')),('actor','kl_loss_coef',True),
-               ('rollout','load_format','dummy'),('rollout','name','sglang'),('rollout','layered_summon',False)]
+               ('rollout','checkpoint_engine',{'backend':'nccl'}),('rollout','load_format','dummy'),('rollout','name','sglang'),('rollout','layered_summon',False)]
         for section,key,value in cases:
             with self.subTest(section=section,key=key,value=value),self.assertRaises(ValueError):
                 config=profile();config['actor_rollout_ref'][section][key]=value

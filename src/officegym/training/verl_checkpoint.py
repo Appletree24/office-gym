@@ -77,6 +77,22 @@ def record_saved_checkpoint(config,step,evidence=None):
     return native
 
 
+
+def native_batch_usage(batch):
+    """Count selected optimization tokens, separately from all sampling cost."""
+    attention=batch.batch['attention_mask'];response=batch.batch['response_mask']
+    if attention.ndim!=2 or response.ndim!=2 or attention.shape[0]!=len(batch) or response.shape[0]!=len(batch) or not 1<=response.shape[1]<=attention.shape[1]:
+        raise ValueError('native training token masks have inconsistent shapes')
+    if not ((attention==0)|(attention==1)).all() or not ((response==0)|(response==1)).all():raise ValueError('native training token masks must be binary')
+    if (response>attention[:,-response.shape[1]:]).any():raise ValueError('actor tokens escape native attention mask')
+    actor_tokens=int(response.sum().item());context_tokens=int(attention.sum().item())
+    generated=batch.non_tensor_batch['officegym_generated_tokens'].tolist()
+    if any(type(value) is not int or value<0 for value in generated) or len(generated)!=len(batch) or sum(generated)!=actor_tokens:
+        raise ValueError('selected native generation counts differ from actor token mask')
+    if actor_tokens<1:raise ValueError('native optimizer requires positive supervised actor tokens')
+    return dict(selected_trajectories=len(batch),actor_loss_tokens=actor_tokens,forward_context_tokens=context_tokens,selected_generated_tokens=sum(generated),context_only_tokens=context_tokens-actor_tokens)
+
+
 def observed_trainer_class(base,config,evidence):
     class ObservedTrainer(base):
         def fit(self):
@@ -122,6 +138,8 @@ def observed_trainer_class(base,config,evidence):
                 validate_actor_batch(batch.non_tensor_batch,initial,count,expected_rows=len(batch))
                 from .native_groups import validate_effective_admission
                 validate_effective_admission(batch,config,count)
+            usage=native_batch_usage(batch) if initial is not None else {}
+            evidence.event('optimizer_update_attempt',count+1,dict(native_global_step=self.global_steps,**usage))
             result=super()._update_actor(batch)
             def values(value):
                 if isinstance(value,numbers.Real) and type(value) is not bool:return [float(value)]
@@ -129,9 +147,16 @@ def observed_trainer_class(base,config,evidence):
                 raise ValueError('unsupported native gradient-norm evidence')
             norms=values(result.meta_info['metrics']['actor/grad_norm'])
             if not norms or any(not math.isfinite(v) or v<0 for v in norms):raise ValueError('native optimizer update lacks finite gradient proof')
+            native_metrics={}
+            if initial is not None:
+                from verl.utils.metric import reduce_metrics
+                native_metrics=reduce_metrics(dict(result.meta_info['metrics']))
+                kl=native_metrics.get('actor/kl_loss')
+                if not isinstance(kl,numbers.Real) or type(kl) is bool or not math.isfinite(float(kl)):
+                    raise ValueError('native optimizer update lacks finite fixed-reference KL evidence')
             self._officegym_optimizer_steps=count+1
             version=dict(sampled_actor_step=count,sampled_actor_version=actor_identity(initial,count),per_generation_version_checks=True) if initial is not None else {}
-            evidence.event('optimizer_update',count+1,dict(native_global_step=self.global_steps,gradient_norms=norms,contract='single-mini-batch-epoch',**version))
+            evidence.event('optimizer_update',count+1,dict(native_global_step=self.global_steps,gradient_norms=norms,contract='single-mini-batch-epoch',native_actor_metrics=native_metrics,**usage,**version))
             return result
         def _save_checkpoint(self):
             if getattr(self,'_officegym_optimizer_steps',0)!=self.global_steps:raise ValueError('native checkpoint lacks verified optimizer counter')
