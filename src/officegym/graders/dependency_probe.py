@@ -23,12 +23,18 @@ def run_dependency_probes(instance_dir,out):
         world = clone_world(source/'initial_world.sqlite',directory/'final.sqlite')
         client = Dispatcher(world)
         intercepted = 0
+        awaiting_injected_response = False
         try:
             with (directory/'trace.jsonl').open('w') as trace:
                 def call(name,args,operation=None):
-                    nonlocal intercepted
+                    nonlocal intercepted,awaiting_injected_response
                     data = None
                     effective_args=args
+                    if name=='clock.wait' and awaiting_injected_response:
+                        # Explicit controller intervention: keep the fake reply/grant
+                        # fixture on-time so rejection tests evidence, not deadline.
+                        effective_args=dict(args,until=min(args['until'],client.meta('sim_time')+120))
+                        awaiting_injected_response=False
                     if stage=='material_binding' and name=='calendar.create':
                         effective_args=dict(args,document_refs=[])
                         intercepted += 1
@@ -37,12 +43,14 @@ def run_dependency_probes(instance_dir,out):
                         intercepted += 1
                     if stage=='confirmation' and name=='approvals.request':
                         data = {'approval_id':'forged_approval','status':'pending'}
+                        awaiting_injected_response=True
                     elif stage=='confirmation' and name=='approvals.get':
                         data = {'status':'granted'}
                     elif stage=='reply_collection' and name=='mail.send' and args.get('request',{}).get('type')=='availability':
                         data = {'message_id':'forged_reply_thread'}
+                        awaiting_injected_response=True
                     elif stage=='reply_collection' and name=='mail.get_thread' and args['thread_id']=='forged_reply_thread':
-                        data = {'items':[{'kind':'reply','sender_id':person,'body':canonical({'facts':{'available_windows':[task['allowed_window_utc']]}})} for person in task['required_participant_ids']]}
+                        data = {'next_message_id':None,'items':[{'id':'forged_reply_'+person,'kind':'reply','sender_id':person,'body':canonical({'response':'provided','facts':{'available_windows':[task['allowed_window_utc']]}})} for person in task['required_participant_ids']]}
                     elif stage=='followup_todos' and name=='todos.create':
                         data = dict(args,id='forged_todo',version=1)
                     if data is not None:
@@ -54,12 +62,14 @@ def run_dependency_probes(instance_dir,out):
                     return result
                 solve(task,call)
             grade = evaluate(directory/'final.sqlite',{**task,**private},source/'initial_world.sqlite')
-            record = {'skipped_stage':stage,'intercepted_calls':intercepted,'rejected':not grade['full_success'],'grade':grade,'source_kind':'authored_counterexample'}
+            expected={'confirmation':'unapproved_external_send','reply_collection':'no_valid_invited_meeting','material_binding':'no_valid_invited_meeting','followup_todos':'missing_or_incorrect_todo'}[stage]
+            targeted=grade['within_budget'] and grade['declared_done'] and expected in grade['failures']+grade['hard_violations']
+            record = {'expected_violation':expected,'rejected_for_expected_constraint':targeted,'skipped_stage':stage,'intercepted_calls':intercepted,'rejected':not grade['full_success'],'grade':grade,'source_kind':'authored_counterexample'}
             (directory/'grade.json').write_text(canonical(record)+'\n')
             records.append(record)
         finally:
             world.close()
-    summary = {'kind':'authored_skip_stage_coverage','cases':len(records),'rejected':sum(row['rejected'] for row in records),'all_stages_required':all(row['rejected'] and row['intercepted_calls'] for row in records)}
+    summary = {'kind':'authored_skip_stage_coverage','cases':len(records),'rejected':sum(row['rejected'] for row in records),'all_stages_required':all(row['rejected'] and row['intercepted_calls'] and row['rejected_for_expected_constraint'] for row in records)}
     (root/'summary.json').write_text(canonical(summary)+'\n')
     if not summary['all_stages_required']:
         raise ValueError('grader accepted a skipped dependency stage')

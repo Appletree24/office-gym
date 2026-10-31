@@ -3,7 +3,7 @@ import json
 from officegym.env.world import canonical as canonical_followup
 
 
-REFERENCE_VERSION='reference-v2-shared-event-cursor'
+REFERENCE_VERSION='reference-v3-batched-availability'
 
 
 def solve(task, call):
@@ -32,17 +32,32 @@ def solve(task, call):
     people = task['required_participant_ids']
     start,end = task['allowed_window_utc']
     if task.get('collect_availability'):
-        for person in people:
-            sent = invoke('mail.send',dict(recipient_ids=[person],kind='coordination',subject='Availability',body='Please provide availability',request={'type':'availability'}),True)
-            facts = None
+        sent = invoke('mail.send',dict(recipient_ids=people,kind='coordination',subject='Availability',body='Please provide availability',request={'type':'availability'}),True)
+        facts_by_person = {}
+        after_message = sent['message_id']
+        for _ in range(20):
+            invoke('clock.wait',{'until':task['deadline_at']})
             for _ in range(20):
-                thread = invoke('mail.get_thread',{'thread_id':sent['message_id']})
-                replies = [message for message in thread['items'] if message['kind']=='reply' and message['sender_id']==person]
-                if replies:
-                    facts = json.loads(replies[-1]['body'])['facts']
+                thread = invoke('mail.get_thread',{'thread_id':sent['message_id'],'after_message_id':after_message})
+                for message in thread['items']:
+                    if message['kind']!='reply' or message['sender_id'] not in people:
+                        continue
+                    body=json.loads(message['body'])
+                    if body.get('response')=='provided':
+                        facts_by_person[message['sender_id']]=body['facts']
+                if thread['items']:
+                    after_message=thread['items'][-1]['id']
+                if not thread.get('next_message_id'):
                     break
-                invoke('clock.wait',{'until':task['deadline_at']})
-            if facts is None or len(facts.get('available_windows',[]))!=1:
+            else:
+                raise RuntimeError('availability thread pagination budget exhausted')
+            if all(person in facts_by_person for person in people):
+                break
+        else:
+            raise RuntimeError('availability replies unavailable within reference budget')
+        for person in people:
+            facts=facts_by_person[person]
+            if len(facts.get('available_windows',[]))!=1:
                 raise RuntimeError('reference requires one explicit availability window')
             left,right = facts['available_windows'][0]
             start,end = max(start,left),min(end,right)
@@ -75,13 +90,15 @@ def solve(task, call):
         if task.get('requires_approval'):
             approval = invoke('approvals.request',dict(approver_id=approver_id,meeting_id=meeting['id'],meeting_version=meeting['version']),True)
             approval_id = approval['approval_id']
+            status=approval
             for _ in range(20):
-                status = invoke('approvals.get',dict(approval_id=approval_id))
-                if status['status'] == 'granted':
+                if status['status']=='pending':
+                    invoke('clock.wait',dict(until=task['deadline_at']))
+                    status=invoke('approvals.get',dict(approval_id=approval_id))
+                if status['status']=='granted':
                     break
-                if status['status'] != 'pending':
+                if status['status']!='pending':
                     raise RuntimeError('approval rejected')
-                invoke('clock.wait',dict(until=task['deadline_at']))
             else:
                 raise RuntimeError('approval did not resolve')
         return approval_id
