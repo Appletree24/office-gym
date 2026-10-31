@@ -12,6 +12,7 @@ from officegym.tools.schema import tool_schemas
 from .registry import REGISTRY
 from .token_budget import TokenLedger,GenerationBudget
 from .tool_execution import dispatch_generated_call,single_call
+from .worker_plugins import plugin_contents
 from verl.tools.schemas import ToolResponse
 from officegym.env.world import canonical
 
@@ -34,6 +35,11 @@ class OfficeGymAgentLoop(ToolAgentLoop):
             expected_tools = {tool['name'] for tool in tool_schemas()}
             if set(self.tools)!=expected_tools:
                 raise ValueError('training must expose exactly the same 24 OfficeGym tools')
+            if (kwargs.get('extra_info') or {}).get('tool_selection'):
+                raise ValueError('per-sample tool filtering is not permitted')
+            # Upstream Pydantic tool models discard items/additionalProperties.
+            # Feed the canonical schemas directly to the continuous-token prompt.
+            self.tool_schemas = [row['tool_schema'] for row in plugin_contents()['tools']['tools']]
             create = dict(trajectory_id=trajectory,officegym_instance_dir=trusted['instance_dir'],actor_version=actor,max_tool_calls=trusted.get('max_tool_calls',24))
             kwargs['tools_kwargs'] = {name:{'create_kwargs':create} for name in expected_tools}
             kwargs['raw_prompt'] = initial_messages(environment.public_task,full=True)

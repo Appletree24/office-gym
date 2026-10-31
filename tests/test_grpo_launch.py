@@ -34,11 +34,14 @@ class LaunchTests(unittest.TestCase):
             config = dict(verl_commit=VERL_COMMIT,verl_checkout=directory,locked_packages={},resolved_upstream_config=str(upstream),resolved_upstream_sha256=hashlib.sha256(upstream.read_bytes()).hexdigest(),command=['python','verified_entrypoint.py'],max_updates=5,max_wall_seconds=60,max_rollout_tokens=1000,starting_checkpoint_hash='sft_hash',reference_checkpoint_hash='sft_hash',group_size=4,rollout_contract=dict(token_ledger_path=str(Path(directory)/'tokens.sqlite'),artifact_root=directory,global_rollout_token_limit=1000,max_generation_tokens=100,max_context_tokens=8192,max_tool_calls=24,actor_version='sft_hash'))
             train = Path(directory)/'train.jsonl'
             train.write_text('{}\n')
+            from officegym.training.worker_plugins import write_plugins
+            plugins = write_plugins(Path(directory))
             preparation = Path(directory)/'preparation.json'
-            preparation.write_text(json.dumps(dict(train_file=str(train),train_sha256=hashlib.sha256(train.read_bytes()).hexdigest(),split='train',rollout_contract=config['rollout_contract'])))
+            preparation.write_text(json.dumps(dict(train_file=str(train),train_sha256=hashlib.sha256(train.read_bytes()).hexdigest(),split='train',worker_plugins=plugins,rollout_contract=config['rollout_contract'])))
             config['prepared_rollouts'] = str(preparation)
             resolved = json.loads(upstream.read_text())
             resolved['data'] = dict(train_files=[str(train)])
+            resolved['actor_rollout_ref']['rollout'].update(agent={'agent_loop_config_path':plugins['agent_loop']['path']},multi_turn={'tool_config_path':plugins['tools']['path']})
             upstream.write_text(json.dumps(resolved))
             config['resolved_upstream_sha256'] = hashlib.sha256(upstream.read_bytes()).hexdigest()
             config['command'] = bound_command(upstream,config['resolved_upstream_sha256'])

@@ -11,6 +11,7 @@ from pathlib import Path
 from officegym.env.world import canonical
 from .rollout_contract import validate_rollout_contract
 from .verl_entry import bound_command,load_resolved
+from .worker_plugins import validate_plugins
 
 VERL_COMMIT = '8df5baeed0f5ecdd7f870d83bc3d79194816e2a9'
 SMOKE_CHECKS = {'isolated_worlds','native_token_ids','tool_loss_mask_zero','initial_actor_reference_kl','parameter_update','actor_version_sync','checkpoint_export_evaluation'}
@@ -66,6 +67,7 @@ def validate_launch(config,smoke=False):
         raise ValueError('prepared rollout contract or split mismatch')
     if not train_file.is_absolute() or hashlib.sha256(train_file.read_bytes()).hexdigest()!=preparation['train_sha256']:
         raise ValueError('prepared rollout data hash mismatch')
+    validate_plugins(preparation.get('worker_plugins',{}),values)
     train_files = values.get('data.train_files')
     if train_files!=str(train_file) and train_files!=[str(train_file)]:
         raise ValueError('upstream train files differ from bound rollout data')

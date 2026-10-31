@@ -5,6 +5,7 @@ from pathlib import Path
 from officegym.env.world import canonical
 from officegym.harness.loop import initial_messages
 from officegym.tasks.validate import validate_dataset
+from .worker_plugins import write_plugins
 from .rollout_contract import bind_rollout_rows,validate_rollout_contract
 
 
@@ -29,10 +30,11 @@ def prepare(manifest_path,contract,out):
     root.mkdir(parents=True,exist_ok=False)
     data = ''.join(canonical(row)+'\n' for row in rows).encode()
     (root/'train.jsonl').write_bytes(data)
+    plugins = write_plugins(root)
     report = dict(format='officegym_verl_train_rows_v1',instances=len(rows),split='train',
                   dataset_manifest=str(manifest_path),dataset_manifest_sha256=hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
                   train_file=str(root/'train.jsonl'),train_sha256=hashlib.sha256(data).hexdigest(),
-                  rollout_contract=contract,status='prepared_not_backend_runtime_verified')
+                  worker_plugins=plugins,rollout_contract=contract,status='prepared_not_backend_runtime_verified')
     (root/'preparation.json').write_text(canonical(report)+'\n')
     return report
 
