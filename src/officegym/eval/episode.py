@@ -47,21 +47,48 @@ def run_episode(instance_dir,out,policy,*,mode='full',budget=None,context_manage
     socket_path = out/'world.sock'
     process = multiprocessing.get_context('spawn').Process(target=serve,args=(world_path,socket_path,budget.tool_calls))
     journal = None
+    isolated_policy = None
+    original_policy = policy
+    context_policy_replaced = False
     termination = {'state':'INFRA_ERROR'}
     started = time.monotonic()
     error = None
+    from officegym.harness.policy import ChatPolicy
+    requires_isolation=isinstance(policy,ChatPolicy) or getattr(policy,'policy_kind',None)=='inference_service'
+    isolation_evidence=dict(version='policy-chroot-v1',verified=False,status='not_started') if requires_isolation else dict(version='software_fixture_not_isolated',verified=False)
+    write_json(out/'policy_isolation.json',isolation_evidence)
     try:
         process.start()
         while not socket_path.exists():
             if not process.is_alive() or time.monotonic()-started>10:
                 raise RuntimeError('world service startup failed')
             time.sleep(.01)
+        if requires_isolation:
+            from officegym.harness.isolation import IsolatedPolicy
+            isolated_policy=IsolatedPolicy(policy,protected_paths=[instance_dir/'private_spec.json',instance_dir/'event_rules.json',instance_dir/'initial_world.sqlite',world_path,Path(__file__).parents[1]/'graders'/'result.py'])
+            isolation_evidence=isolated_policy.evidence
+            write_json(out/'policy_isolation.json',isolation_evidence)
+            if context_manager is not None and hasattr(context_manager,'policy'):
+                if context_manager.policy is not policy:
+                    raise ValueError('compression must use the executing policy')
+                context_manager.policy=isolated_policy
+                context_policy_replaced=True
+            policy=isolated_policy
         journal = Journal(out/'runtime.sqlite') if mode=='full' else None
         harness = Harness(policy,Client(socket_path).call,public,out/'trajectory.jsonl',budget,journal,context_manager)
         termination = harness.run()
     except Exception as exc:
         error = {'type':type(exc).__name__,'message':str(exc)}
+        if not isolation_evidence.get('verified') and requires_isolation:
+            isolation_evidence.update(status='failed',error_type=type(exc).__name__)
+            write_json(out/'policy_isolation.json',isolation_evidence)
+        if not (out/'trajectory.jsonl').exists():
+            (out/'trajectory.jsonl').write_text(canonical(dict(kind='infrastructure_failure_before_policy',error_type=type(exc).__name__))+'\n')
     finally:
+        if context_policy_replaced:
+            context_manager.policy=original_policy
+        if isolated_policy:
+            isolated_policy.close()
         if journal:
             journal.close()
         if process.pid is not None:
@@ -78,7 +105,7 @@ def run_episode(instance_dir,out,policy,*,mode='full',budget=None,context_manage
         grade['reward'] = -1.0 if grade['hard_violations'] else 0.0
     result = dict(instance_id=task['instance_id'],split=task['split'],template_id=task['template_id'],mode=mode,
                   model_version=getattr(policy,'model_version',None),policy_kind=getattr(policy,'policy_kind','software_fixture'),termination=termination,grade=grade,operation_audit=audit,
-                  infrastructure_error=error,runner_wall_seconds=time.monotonic()-started,
+                  policy_isolation=isolation_evidence,infrastructure_error=error,runner_wall_seconds=time.monotonic()-started,
                   scope='single_episode_not_complete_evaluation_matrix',versions=versions)
     write_json(out/'result.json',result)
     return result

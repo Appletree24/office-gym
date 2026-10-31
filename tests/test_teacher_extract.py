@@ -26,6 +26,11 @@ class TeacherExtractTests(unittest.TestCase):
             result=dict(split='train',policy_kind='inference_service',instance_id='fixture',model_version='fixture',
                         grade=dict(full_success=True,eval_grader_version=EVAL_GRADER_VERSION,reward_version=REWARD_VERSION),
                         termination={'state':'DECLARED_DONE'},operation_audit={'consistent':True})
+            # Authored metadata fixture for parser acceptance; not an OS-isolation proof.
+            from officegym.harness.isolation import ISOLATION_VERSION
+            evidence=dict(version=ISOLATION_VERSION,verified=True,uid=65534,gid=65534,groups=[],no_new_privs=True,dumpable=0,cannot_regain_root=True,grader_unavailable=True,root_entries=[],inherited_descriptors=[0,1,2],parent_death_signal='SIGKILL',environment_empty=True,protected_paths_denied=['/fixture/'+str(i) for i in range(5)])
+            result['policy_isolation']=evidence
+            (root/'policy_isolation.json').write_text(json.dumps(evidence))
             (root/'result.json').write_text(json.dumps(result))
             records=[dict(kind='run_header',harness_version=HARNESS_VERSION,mode='full',model_version='fixture',initial_messages=[{'role':'user','content':'fixture task'}],tool_schemas=[]),
                      dict(kind='model_response',tool='task.finish',arguments={'summary':'done'},content='The task is complete.',raw={'fixture':True}),

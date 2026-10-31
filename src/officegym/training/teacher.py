@@ -20,6 +20,11 @@ def extract_trajectory(run_dir):
         require_current_scoring(result.get('grade',{}))
     except ValueError as exc:
         raise RejectedTrajectory('stale_scoring_version') from exc
+    from officegym.harness.isolation import require_isolation
+    try:
+        require_isolation(root,result)
+    except ValueError as exc:
+        raise RejectedTrajectory('unsafe_policy_isolation') from exc
     if not result['grade']['full_success'] or result['termination']['state']!='DECLARED_DONE' or not result['operation_audit']['consistent']:
         raise RejectedTrajectory('not_verified_success')
     trace_path = root/'trajectory.jsonl'

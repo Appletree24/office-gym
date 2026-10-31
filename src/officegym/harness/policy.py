@@ -44,6 +44,7 @@ class ChatPolicy:
         self.endpoint,self.model,self.model_version = endpoint,model,model_version
         self.api_key_env,self.max_output_tokens,self.temperature = api_key_env,max_output_tokens,temperature
         self.transport = transport or self._post
+        self.policy_kind = 'software_fixture' if transport is not None else 'inference_service'
 
     def _post(self,payload,timeout):
         headers = {'Content-Type':'application/json'}

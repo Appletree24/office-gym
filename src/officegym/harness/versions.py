@@ -1,1 +1,1 @@
-HARNESS_VERSION = 'harness-v3-bounded-summary'
+HARNESS_VERSION = 'harness-v4-isolated-chat-policy'

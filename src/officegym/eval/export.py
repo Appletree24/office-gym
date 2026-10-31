@@ -19,6 +19,8 @@ def result_row(run_dir,plan_row,dataset_manifest):
     result = json.loads((root/'result.json').read_text())
     if result.get('policy_kind')!='inference_service':
         raise ValueError('scripted/software runs cannot become measured result rows')
+    from officegym.harness.isolation import require_isolation
+    require_isolation(root,result,allow_startup_failure=True)
     if result['split'] not in ('dev','id_test','combo_test','unseen_test'):
         raise ValueError('probe/train runs cannot enter evaluation statistics')
     for field in ('instance_id','split','template_id'):

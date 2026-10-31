@@ -15,6 +15,9 @@ PYTHONPATH=src .venv/bin/python -m officegym.cli probe-fault --out artifacts/fau
 
 探针使用全新输出目录，保留原始轨迹及数据库。`probe-reference` 检查基础排期、延迟审批和确定性重放；`probe-fault` 真实终止 Agent worker，保留世界服务并核对外发效果。它们均属于软件验证，不属于真实模型实验。
 
+策略文件访问隔离探针：`PYTHONPATH=src .venv/bin/python -m officegym.eval.isolation_probe --out artifacts/NEW_ISOLATION_PROBE`。配置式 ChatPolicy 评测会启动独立 exec 进程，在空 chroot 中降为 UID/GID 65534，清空补充组和环境，启用 no_new_privs、禁止 dump，并限制继承描述符为 stdin/stdout/stderr。HTTP 请求由可信父进程代理，凭据、世界 socket、数据库、tokenizer 和评分器保留在可信侧；生成与摘要均走有界 JSON 消息通道。需要 Linux root 及 chroot/setuid/setgid 能力；隔离失败保留 INFRA_ERROR，不回退到未隔离执行。每次运行保存 policy_isolation.json，正式结果导出与教师提取校验该证据。自定义 transport 被标记为软件 fixture。此边界目前覆盖 ChatPolicy 评测/教师路径；原生 verl worker 与完整故障模式仍需单独隔离验收。
+
+
 原始设计与命令合同见 OFFICEGYM_IMPLEMENTATION.md；阶段要求见 IMPLEMENTATION_HANDOFF.md；剩余范围见 IMPLEMENTATION_STATUS.md。configs 中 null 预算不表示无限许可，训练配置仍需按实际安装版本映射及验证。统计脚本要求完整运行计划和真实结果，禁止将示例或探针数据写成正式评测。
 
 MCP（官方 SDK 1.30.0，依赖见 requirements-env.lock）：先以 `serve-world --world EPISODE.sqlite --socket /private/world.sock` 启动固定世界，再以 `serve-mcp --socket /private/world.sock` 启动 stdio 适配器。两者命令均使用 `PYTHONPATH=src .venv/bin/python -m officegym.cli` 前缀。写工具 operation_id 由可信 Harness 放在 MCP `_meta["officegym/operation_id"]`，不放入模型工具参数。客户端仅消费 structuredContent；stdio stdout 专用于协议。
