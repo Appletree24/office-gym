@@ -1,5 +1,6 @@
 """Export measured planned runs; software probes are excluded from formal statistics."""
 from officegym.env.world import canonical
+from .context_metrics import context_metrics
 import hashlib
 import json
 import sqlite3
@@ -61,4 +62,6 @@ def result_row(run_dir,plan_row,dataset_manifest):
                generated_tokens=termination.get('generated_tokens',0),input_tokens=termination.get('input_tokens',0),tool_calls=final['tool_calls'],
                wall_seconds=result['runner_wall_seconds'],sim_seconds=max(0,final['sim_time']-initial['sim_time']),
                artifact_path=str(root.resolve()),model_version=result['model_version'],synthetic=False,example_only=False)
+    records=[json.loads(line) for line in (root/'trajectory.jsonl').read_text().splitlines() if line.strip()]
+    row.update(context_metrics(records))
     return row

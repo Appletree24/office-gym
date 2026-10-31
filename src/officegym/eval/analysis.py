@@ -3,6 +3,7 @@
 No external dependencies. No example results are included in this package.
 """
 from officegym.resources import read_text
+from .context_metrics import FIELDS as CONTEXT_FIELDS,CONTEXT_METRICS_VERSION
 import argparse
 from collections import defaultdict
 import csv
@@ -13,10 +14,10 @@ import random
 import statistics
 
 KEY_FIELDS = ("group", "split", "instance_id", "repeat_id")
-VERSION_FIELDS = ("env_version", "eval_grader_version", "reward_version", "harness_version", "dataset_manifest_hash", "budget_hash")
+VERSION_FIELDS = ("env_version", "eval_grader_version", "reward_version", "harness_version", "dataset_manifest_hash", "budget_hash", "context_metrics_version")
 TASK_FIELDS = ("scenario_family_id", "template_id", "depth_level", "perturbation_level")
 BOOL_FIELDS = ("success", "infra_error", "fault_injected", "recovery_started", "premature_completion", "declared_done")
-INT_FIELDS = ("repeat_id", "duplicate_effects", "generated_tokens", "input_tokens", "tool_calls", "sim_seconds")
+INT_FIELDS = ("repeat_id", "duplicate_effects", "generated_tokens", "input_tokens", "tool_calls", "sim_seconds") + CONTEXT_FIELDS
 TEXT_FIELDS = ("instance_id", "scenario_family_id", "group", "split", "template_id") + VERSION_FIELDS + ("model_version",)
 
 def read_jsonl(path):
@@ -60,6 +61,11 @@ def validate_row(row):
             raise ValueError(f"Expected integer: {name}")
     if isinstance(row["wall_seconds"], bool) or not isinstance(row["wall_seconds"], (int, float)) or not math.isfinite(row["wall_seconds"]) or row["wall_seconds"] < 0:
         raise ValueError("Invalid wall_seconds")
+    if row['context_metrics_version']!=CONTEXT_METRICS_VERSION:
+        raise ValueError('Unsupported context metrics version')
+    samples=row['context_samples']
+    if any(row[field]>samples for field in ('compression_trigger_count','compressed_context_count','truncated_context_count')) or row['summary_model_calls']+row['summary_cache_hits']>row['compression_trigger_count'] or row['compressed_context_count']>row['compression_trigger_count'] or row['context_token_sum']>row['peak_context_tokens']*samples or row['peak_context_tokens']>row['context_token_sum'] or (samples==0 and row['context_token_sum']!=0):
+        raise ValueError('Inconsistent measured context metrics')
     if row["success"] and (row["infra_error"] or row["premature_completion"]):
         raise ValueError("Successful run cannot be infrastructure error or premature completion")
     if row["premature_completion"] and not row["declared_done"]:
@@ -129,6 +135,13 @@ def summary(rows):
     premature = sum(r["premature_completion"] for r in rows)
     done = sum(r["declared_done"] for r in rows)
     return {
+        "compression_trigger_rate": ratio(sum(r['compression_trigger_count']>0 for r in rows),n),
+        "mean_compression_triggers": ratio(sum(r['compression_trigger_count'] for r in rows),n),
+        "mean_summary_model_calls": ratio(sum(r['summary_model_calls'] for r in rows),n),
+        "summary_cache_hits": sum(r['summary_cache_hits'] for r in rows),
+        "truncated_episode_rate": ratio(sum(r['truncated_context_count']>0 for r in rows),n),
+        "mean_context_tokens": statistics.mean([r['context_token_sum']/r['context_samples'] for r in rows if r['context_samples']]) if any(r['context_samples'] for r in rows) else None,
+        "peak_context_tokens": max((r['peak_context_tokens'] for r in rows if r['context_samples']),default=None),
         "planned_runs": n, "instances": len({r["instance_id"] for r in rows}),
         "success_count": success, "success_rate": ratio(success, n),
         "infra_error_count": sum(r["infra_error"] for r in rows),
@@ -236,7 +249,7 @@ def main():
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     csv_path = report_path.with_suffix(".csv")
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["group","depth_level","perturbation_level","runs","success_rate"])
+        writer = csv.DictWriter(handle, fieldnames=["group","depth_level","perturbation_level","runs","success_rate","compression_trigger_rate","mean_compression_triggers","mean_summary_model_calls","mean_context_tokens","peak_context_tokens"])
         writer.writeheader()
         for group in (args.a, args.b):
             pairs = sorted({(r["depth_level"],r["perturbation_level"]) for r in rows})
@@ -245,7 +258,7 @@ def main():
                 if items:
                     s = summary(items)
                     writer.writerow({"group":group,"depth_level":depth,"perturbation_level":perturbation,
-                                     "runs":len(items),"success_rate":s["success_rate"]})
+                                     "runs":len(items),"success_rate":s["success_rate"],**{key:s[key] for key in ("compression_trigger_rate","mean_compression_triggers","mean_summary_model_calls","mean_context_tokens","peak_context_tokens")}})
     print(f"Report: {report_path}; stratified CSV: {csv_path}")
     print("CSV cells are descriptive. Hold other factors fixed before drawing a depth/perturbation curve.")
 

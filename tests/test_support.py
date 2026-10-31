@@ -19,6 +19,7 @@ def fixtures():
                     "instance_id":instance, "scenario_family_id":instance, "repeat_id":repeat,
                     "group":group, "split":"id_test", "template_id":"T01",
                     "depth_level":1, "perturbation_level":0,
+                    "context_metrics_version":"context-metrics-v1", "context_samples":1,"context_token_sum":20,"peak_context_tokens":20,"compression_trigger_count":0,"summary_model_calls":0,"summary_cache_hits":0,"compressed_context_count":0,"truncated_context_count":0,
                     "model_version":"test-model", "reward_version":"test-reward", "harness_version":"test-harness",
                     "env_version":"test-env", "eval_grader_version":"test-grader",
                     "dataset_manifest_hash":"test-manifest", "budget_hash":"test-budget",
@@ -52,6 +53,15 @@ class StatisticsTests(unittest.TestCase):
             if row['group']=='b':
                 row['model_version']='another-checkpoint'
         self.assertEqual(len(analysis.select_and_validate(rows,plan,'a','b','id_test')),12)
+
+    def test_compression_statistics_report_actual_calls_and_context_lengths(self):
+        rows,_=fixtures()
+        rows[0].update(compression_trigger_count=1,summary_model_calls=1,compressed_context_count=1)
+        result=analysis.summary(rows)
+        self.assertEqual(result['compression_trigger_rate'],1/12)
+        self.assertEqual(result['mean_summary_model_calls'],1/12)
+        self.assertEqual(result['mean_context_tokens'],20)
+        self.assertEqual(result['peak_context_tokens'],20)
 
     def test_complete_pairing(self):
         rows, plan = fixtures()

@@ -36,6 +36,11 @@ class TeacherExtractTests(unittest.TestCase):
             save()
             source=extract_trajectory(root)
             self.assertEqual(source['conversation'][1]['content'],'The task is complete.')
+            records.insert(1,dict(kind='context_selection',compression_triggered=True,summary_output_tokens=0))
+            save()
+            with self.assertRaisesRegex(RejectedTrajectory,'compressed_or_truncated'):
+                extract_trajectory(root)
+            records.pop(1)
             records[3]['messages'][0]['tool_call']['arguments']={'summary':'changed'}
             save()
             with self.assertRaisesRegex(RejectedTrajectory,'interaction_differs'):

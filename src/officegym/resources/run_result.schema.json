@@ -29,7 +29,16 @@
     "sim_seconds",
     "model_version",
     "reward_version",
-    "harness_version"
+    "harness_version",
+    "context_samples",
+    "context_token_sum",
+    "peak_context_tokens",
+    "compression_trigger_count",
+    "summary_model_calls",
+    "summary_cache_hits",
+    "compressed_context_count",
+    "truncated_context_count",
+    "context_metrics_version"
   ],
   "properties": {
     "instance_id": {
@@ -131,6 +140,42 @@
       "minLength": 1
     },
     "harness_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "context_samples": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "context_token_sum": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "peak_context_tokens": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "compression_trigger_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "summary_model_calls": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "summary_cache_hits": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "compressed_context_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "truncated_context_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "context_metrics_version": {
       "type": "string",
       "minLength": 1
     }

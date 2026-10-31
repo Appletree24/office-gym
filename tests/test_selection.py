@@ -28,7 +28,7 @@ class SelectionTests(unittest.TestCase):
             candidates.append(dict(candidate_id=str(index),optimizer_step=step,checkpoint=str(checkpoint),export_record=str(export)))
             results=[]
             for planned in plan:
-                results.append(dict(planned,model_version=fingerprint,env_version='fixture',eval_grader_version='fixture',reward_version='fixture',harness_version='fixture',dataset_manifest_hash='fixture',budget_hash='fixture',success=True,infra_error=False,fault_injected=False,recovery_started=False,duplicate_effects=0,premature_completion=False,declared_done=True,generated_tokens=1,input_tokens=1,tool_calls=1,wall_seconds=1,sim_seconds=30))
+                results.append(dict(planned,context_metrics_version='context-metrics-v1',context_samples=1,context_token_sum=20,peak_context_tokens=20,compression_trigger_count=0,summary_model_calls=0,summary_cache_hits=0,compressed_context_count=0,truncated_context_count=0,model_version=fingerprint,env_version='fixture',eval_grader_version='fixture',reward_version='fixture',harness_version='fixture',dataset_manifest_hash='fixture',budget_hash='fixture',success=True,infra_error=False,fault_injected=False,recovery_started=False,duplicate_effects=0,premature_completion=False,declared_done=True,generated_tokens=1,input_tokens=1,tool_calls=1,wall_seconds=1,sim_seconds=30))
             path=root/('results'+str(index)+'.jsonl')
             path.write_text(''.join(json.dumps(row)+'\n' for row in results));files[str(index)]=str(path)
         freeze(candidates,root/'plan.jsonl','sft_full',root/'rule.json')

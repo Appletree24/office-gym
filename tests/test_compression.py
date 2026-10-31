@@ -16,7 +16,13 @@ class CompressionTests(unittest.TestCase):
         self.assertEqual(len(selected),5)
         self.assertTrue(info['compressed'])
         self.assertEqual(info['summary_output_tokens'],12)
-        self.assertEqual(context.prepare(messages,[])[1]['summary_output_tokens'],0)
+        cached=context.prepare(messages,[])[1]
+        self.assertEqual(cached['summary_output_tokens'],0)
+        self.assertTrue(info['compression_triggered'])
+        self.assertTrue(info['summary_model_call'])
+        self.assertFalse(info['summary_cache_hit'])
+        self.assertTrue(cached['summary_cache_hit'])
+        self.assertFalse(cached['summary_model_call'])
 
     def test_archive_reused_after_reconstruction(self):
         import tempfile
@@ -56,6 +62,8 @@ class CompressionTests(unittest.TestCase):
         context = FullContext(lambda messages,schemas:len(messages)*10,200,Policy(),50,10)
         context.set_budget({'generated_tokens':100})
         selected,info = context.prepare(messages,[])
+        self.assertTrue(info['compression_triggered'])
+        self.assertTrue(info['summary_model_call'])
         self.assertEqual(info['compression_failed'],'invalid_summary')
         self.assertEqual(info['summary_output_tokens'],10)
         self.assertEqual(selected,messages)

@@ -31,7 +31,7 @@ def extract_trajectory(run_dir):
         raise RejectedTrajectory('stale_harness_version')
     if header['mode']!='full' or header['model_version']!=result['model_version']:
         raise RejectedTrajectory('teacher_mode_or_model_mismatch')
-    if any(row['kind']=='context_selection' and (row.get('compressed') or row.get('summary_output_tokens',0) or row.get('removed_groups',0)) for row in records):
+    if any(row['kind']=='context_selection' and (row.get('compression_triggered') or row.get('compressed') or row.get('summary_output_tokens',0) or row.get('removed_groups',0)) for row in records):
         raise RejectedTrajectory('compressed_or_truncated')
     if any(row.get('reconciled') or row.get('retry_same_key') for row in records):
         raise RejectedTrajectory('recovered')

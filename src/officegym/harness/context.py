@@ -37,13 +37,16 @@ class SimpleContext:
                 groups.append([copy.deepcopy(message)])
                 index += 1
         removed = []
+        original_tokens = None
         while True:
             selected = prefix + [message for group in groups for message in group]
             tokens = self.count_tokens(selected,schemas)
             if type(tokens) is not int or tokens<0:
                 raise ValueError('token counter must return nonnegative actual prompt count')
+            if original_tokens is None:
+                original_tokens = tokens
             if tokens <= self.limit:
-                return selected, {'input_tokens':tokens,'removed_groups':len(removed),
+                return selected, {'context_metrics_version':'context-metrics-v1','source_input_tokens':original_tokens,'input_tokens':tokens,'removed_groups':len(removed),
                                   'removed_sha256':hashlib.sha256(canonical(removed).encode()).hexdigest() if removed else None}
             if not groups:
                 raise ContextOverflow('policy, task and tool schemas exceed context budget')
@@ -118,13 +121,15 @@ class FullContext(SimpleContext):
         count = self.count_tokens(messages,schemas)
         if count <= self.trigger or len(messages)<=4:
             return fallback,fallback_info
+        fallback_info = dict(fallback_info,compression_triggered=True)
         source = messages[2:-2]
         if source and source[-1].get('tool_call'):
             return fallback,dict(fallback_info,compression_failed='unsafe_boundary')
         fingerprint = hashlib.sha256(canonical({'source':source,'prefix':messages[:2],'schemas':schemas,'model_version':getattr(self.policy,'model_version',None)}).encode()).hexdigest()
-        usage = {'summary_input_tokens':0,'summary_output_tokens':0}
+        usage = {'summary_input_tokens':0,'summary_output_tokens':0,'summary_model_call':False,'summary_cache_hit':False}
         if fingerprint in self.cache:
             record = self.cache[fingerprint]
+            usage['summary_cache_hit'] = True
         else:
             if self.remaining is None:
                 raise ValueError('compression requires remaining global budget')
@@ -132,7 +137,7 @@ class FullContext(SimpleContext):
             for field in ('input_tokens','output_tokens'):
                 if type(record.get(field)) is not int or record[field]<0:
                     raise ValueError('summary must report measured token usage')
-            usage = dict(summary_input_tokens=record['input_tokens'],summary_output_tokens=record['output_tokens'],summary_raw=record.get('raw'))
+            usage = dict(summary_input_tokens=record['input_tokens'],summary_output_tokens=record['output_tokens'],summary_raw=record.get('raw'),summary_model_call=True,summary_cache_hit=False)
             summary = record.get('summary',{})
             valid = grounded_summary(summary,self.REQUIRED,source)
             if not valid:
@@ -153,4 +158,4 @@ class FullContext(SimpleContext):
         tokens = self.count_tokens(selected,schemas)
         if tokens>self.limit:
             return fallback,dict(fallback_info,**usage,compression_failed='summary_too_large',source_sha256=fingerprint)
-        return selected,dict(input_tokens=tokens,compressed=True,source_sha256=fingerprint,summary=record['summary'],summary_model_version=record['model_version'],sampling_parameters=record['sampling_parameters'],**usage)
+        return selected,dict(context_metrics_version='context-metrics-v1',source_input_tokens=count,compression_triggered=True,input_tokens=tokens,compressed=True,source_sha256=fingerprint,summary=record['summary'],summary_model_version=record['model_version'],sampling_parameters=record['sampling_parameters'],**usage)
