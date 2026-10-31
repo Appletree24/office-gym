@@ -8,14 +8,17 @@ from officegym.harness.loop import AssistantTurn,Budget
 
 class EpisodeTests(unittest.TestCase):
     def test_early_finish_not_success_and_artifacts_retained(self):
+        self_outer = self
         class Policy:
             model_version = 'scripted-unit-fixture'
             def generate(self,*args):
+                self_outer.assertTrue((root/'run'/'resolved_eval_config.json').is_file())
+                self_outer.assertTrue((root/'run'/'tokenizer_manifest.json').is_file())
                 return AssistantTurn('task.finish',{'summary':'done'},5,3)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             manifest = generate(root/'tasks',templates=['T01'],count_per_template=1)
-            result = run_episode(root/'tasks'/manifest['instances'][0]['path'],root/'run',Policy(),mode='simple')
+            result = run_episode(root/'tasks'/manifest['instances'][0]['path'],root/'run',Policy(),mode='simple',initial_metadata={'resolved_eval_config.json':{'fixture':True},'tokenizer_manifest.json':{'fixture':True}})
             self.assertEqual(result['termination']['state'],'DECLARED_DONE')
             self.assertFalse(result['grade']['full_success'])
             self.assertTrue((root/'run'/'trajectory.jsonl').is_file())

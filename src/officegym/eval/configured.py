@@ -6,7 +6,6 @@ from officegym.harness.loop import Budget
 from officegym.harness.policy import ChatPolicy
 from officegym.harness.tokenizer import PromptTokenizer
 from officegym.harness.context import SimpleContext,FullContext
-from officegym.env.world import canonical
 from .episode import run_episode
 
 
@@ -41,7 +40,6 @@ def evaluate_instance(instance,out,config_path):
         context = FullContext(tokenizer,config['max_context_tokens'],policy,trigger_tokens=config.get('compression_trigger_tokens',8192),reserved_output_tokens=config['max_output_tokens'],archive_path=Path(out)/'summaries.jsonl')
     else:
         context = SimpleContext(tokenizer,config['max_context_tokens'],config['max_output_tokens'])
-    result = run_episode(instance,out,policy,mode=config['mode'],budget=budget,context_manager=context)
-    (Path(out)/'tokenizer_manifest.json').write_text(canonical(tokenizer.manifest())+'\n')
-    (Path(out)/'resolved_eval_config.json').write_text(canonical(config)+'\n')
+    result = run_episode(instance,out,policy,mode=config['mode'],budget=budget,context_manager=context,
+                         initial_metadata={'resolved_eval_config.json':config,'tokenizer_manifest.json':tokenizer.manifest()})
     return result

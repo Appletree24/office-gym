@@ -10,20 +10,28 @@ from officegym.harness.loop import Harness,Budget
 from officegym.harness.journal import Journal
 from officegym.graders.result import evaluate
 from officegym.graders.operations import reconcile
+from .artifacts import write_json
 
 
-def run_episode(instance_dir,out,policy,*,mode='full',budget=None,context_manager=None):
+def run_episode(instance_dir,out,policy,*,mode='full',budget=None,context_manager=None,initial_metadata=None):
     if mode not in ('simple','full'):
         raise ValueError('unknown harness mode')
+    initial_metadata = initial_metadata or {}
+    if not isinstance(initial_metadata,dict) or set(initial_metadata)-{'resolved_eval_config.json','tokenizer_manifest.json'}:
+        raise ValueError('unsupported initial episode metadata')
+    for value in initial_metadata.values():
+        canonical(value)
     instance_dir,out = Path(instance_dir).resolve(),Path(out).resolve()
     task = json.loads((instance_dir/'task.json').read_text())
     public = task['public_task']
     private = json.loads((instance_dir/'private_spec.json').read_text())
     budget = budget or Budget()
     out.mkdir(parents=True,exist_ok=False)
+    for name,value in initial_metadata.items():
+        write_json(out/name,value)
     from .provenance import provenance
     versions = provenance(instance_dir,policy)
-    (out/'provenance.json').write_text(canonical(versions)+'\n')
+    write_json(out/'provenance.json',versions)
     world_path = out/'world.sqlite'
     world = clone_world(instance_dir/'initial_world.sqlite',world_path)
     try:
@@ -35,7 +43,7 @@ def run_episode(instance_dir,out,policy,*,mode='full',budget=None,context_manage
     finally:
         world.close()
     from dataclasses import asdict
-    (out/'budget.json').write_text(canonical(asdict(budget))+'\n')
+    write_json(out/'budget.json',asdict(budget))
     socket_path = out/'world.sock'
     process = multiprocessing.get_context('spawn').Process(target=serve,args=(world_path,socket_path,budget.tool_calls))
     journal = None
@@ -72,5 +80,5 @@ def run_episode(instance_dir,out,policy,*,mode='full',budget=None,context_manage
                   model_version=getattr(policy,'model_version',None),policy_kind=getattr(policy,'policy_kind','software_fixture'),termination=termination,grade=grade,operation_audit=audit,
                   infrastructure_error=error,runner_wall_seconds=time.monotonic()-started,
                   scope='single_episode_not_complete_evaluation_matrix',versions=versions)
-    (out/'result.json').write_text(canonical(result)+'\n')
+    write_json(out/'result.json',result)
     return result
