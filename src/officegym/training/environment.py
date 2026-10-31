@@ -16,6 +16,7 @@ from officegym.graders.result import evaluate
 from officegym.graders.operations import reconcile
 from officegym.eval.artifacts import write_json
 from .data import validate_rollout
+from officegym.tasks.partitions import validate_partition
 
 
 class RolloutEnvironment:
@@ -26,6 +27,7 @@ class RolloutEnvironment:
         task = json.loads((source/'task.json').read_text())
         if task['split']!='train':
             raise ValueError('training rollout requires train split')
+        validate_partition(task['template_id'],task['split'],task.get('seed'))
         self.public_task = task['public_task']
         self._spec = {**self.public_task,**json.loads((source/'private_spec.json').read_text())}
         self.actor_version = actor_version

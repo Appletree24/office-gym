@@ -5,6 +5,7 @@ import json
 import sqlite3
 from collections import Counter
 from pathlib import Path
+from .partitions import validate_partition,HELDOUT_SIGNATURES
 from .integrity import validate_unique, dependency_depth, fingerprints, check_holdout
 
 REQUIRED = ('task.json','initial_world.sqlite','private_spec.json','event_rules.json','reference_trace.jsonl','reference_grade.json')
@@ -16,6 +17,9 @@ def validate_dataset(manifest_path):
     entries = manifest['instances']
     if not entries:
         raise ValueError('empty dataset')
+    declared = manifest.get('heldout_signatures',HELDOUT_SIGNATURES)
+    if declared!=HELDOUT_SIGNATURES and declared!=[list(signature) for signature in HELDOUT_SIGNATURES]:
+        raise ValueError('dataset changes the fixed ordered holdout contract')
     validate_unique(entries)
     atoms = {'train':set(),'combo_test':set()}
     splits,templates = Counter(),set()
@@ -34,6 +38,7 @@ def validate_dataset(manifest_path):
         task = json.loads((directory/'task.json').read_text())
         if task.get('example_only') or any(task[key]!=entry[key] for key in ('instance_id','split','template_id','scenario_family_id','depth_level','perturbation_level')):
             raise ValueError('task identity mismatch or example fixture')
+        validate_partition(task['template_id'],task['split'],task.get('seed'))
         if entry['split'] in atoms:
             rules = json.loads((directory/'event_rules.json').read_text())
             scheduled = rules.get('scheduled_events',[])

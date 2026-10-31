@@ -7,12 +7,8 @@ from .artifacts import write_instance
 from .integrity import validate_unique,check_holdout
 from .dependencies import dependency_edges
 
-TRAIN_TEMPLATES = ('T01','T02','T03','T04','T05','T06','T07','T08')
-SUPPORTED = TRAIN_TEMPLATES + ('D01','D02','U01','U02','U03','U04')
-SEED_RANGES = {'train':(100000,199999),'dev':(200000,299999),'probe':(900000,909999),'unseen_test':(500000,599999),'id_test':(300000,399999),'combo_test':(400000,499999)}
+from .partitions import TRAIN_TEMPLATES,SUPPORTED,SEED_RANGES,HELDOUT_SIGNATURES
 
-
-HELDOUT_SIGNATURES = [('AttendeeChanged','DocumentVersionPublished')]
 
 def generate(out,templates=TRAIN_TEMPLATES,count_per_template=3,seed=None,split='probe',heldout_combo=False,depth_level=None,perturbation_level=None):
     if depth_level is not None and (type(depth_level) is not int or depth_level not in (1,2,3) or tuple(templates)!=('T04',)):
