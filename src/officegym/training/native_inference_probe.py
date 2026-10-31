@@ -126,10 +126,10 @@ async def worker(fetch_root,instance,root,backend='direct'):
 
 
 def run(fetch_root,instance,out,backend='direct'):
-    if backend not in ('direct','ray'):raise ValueError('explicit direct/ray probe backend required')
+    if backend not in ('direct','ray','ray-worker'):raise ValueError('explicit direct/ray probe backend required')
     root=Path(out).resolve();root.mkdir(parents=True,exist_ok=False)
     artifact_dirs=[root]
-    if backend=='ray':
+    if backend.startswith('ray'):
         runtime=Path(tempfile.mkdtemp(prefix='ogray-native-'));artifact_dirs.append(runtime)
         (root/'ray_runtime_path.txt').write_text(str(runtime))
     def artifact_bytes():
@@ -141,7 +141,7 @@ def run(fetch_root,instance,out,backend='direct'):
                 except FileNotFoundError:pass
         return total
     write_json(root/'resource_plan.json',dict(backend=backend,max_wall_seconds=WALL_SECONDS,max_gpu_hours=WALL_SECONDS/3600,max_gpu_mib=GPU_MIB,max_artifact_bytes=ARTIFACT_BYTES,max_api_cost_usd=0,max_rollouts=2,max_generation_requests=10,max_generated_tokens=1024,fetch_root=str(Path(fetch_root).resolve()),instance=str(Path(instance).resolve())))
-    for name in ('native_inference_probe.py','verl_loop.py','process_tree.py','verl_loop_sources.json','native_ray_backend.py'):
+    for name in ('native_inference_probe.py','verl_loop.py','process_tree.py','verl_loop_sources.json','native_ray_backend.py','native_worker_generation_probe.py','rollout_context.py'):
         (root/('executed_'+name)).write_bytes(Path(__file__).with_name(name).read_bytes())
     idle=subprocess.run(['nvidia-smi','--query-compute-apps=pid','--format=csv,noheader'],capture_output=True,text=True,check=True,timeout=10)
     if idle.stdout.strip():
@@ -164,7 +164,7 @@ def run(fetch_root,instance,out,backend='direct'):
     from .process_tree import execute_tree_bounded
     # Clean, explicit environment; no inherited API credentials.
     environment=dict(PATH=os.defpath,LANG='C.UTF-8',PYTHONPATH=str(Path(__file__).resolve().parents[2]),CUDA_VISIBLE_DEVICES='0',HF_HUB_OFFLINE='1',TRANSFORMERS_OFFLINE='1',TOKENIZERS_PARALLELISM='false',OMP_NUM_THREADS='2',VLLM_WORKER_MULTIPROC_METHOD='spawn',VLLM_NO_USAGE_STATS='1',DO_NOT_TRACK='1',VLLM_CACHE_ROOT=str(root/'vllm_cache'),TORCHINDUCTOR_CACHE_DIR=str(root/'torch_cache'),RAY_USAGE_STATS_ENABLED='0')
-    if backend=='ray':environment['VLLM_API_KEY']=secrets.token_urlsafe(32)
+    if backend.startswith('ray'):environment['VLLM_API_KEY']=secrets.token_urlsafe(32)
     command=[sys.executable,'-m','officegym.training.native_inference_probe','--worker','--fetch-root',str(Path(fetch_root).resolve()),'--instance',str(Path(instance).resolve()),'--out',str(root),'--backend',backend]
     try:
         with (root/'stdout.log').open('w') as stdout,(root/'stderr.log').open('w') as stderr:
@@ -181,6 +181,10 @@ def run(fetch_root,instance,out,backend='direct'):
 
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--fetch-root',required=True);parser.add_argument('--instance',required=True);parser.add_argument('--out',required=True);parser.add_argument('--worker',action='store_true',help=argparse.SUPPRESS);parser.add_argument('--backend',choices=('direct','ray'),default='direct');args=parser.parse_args()
-    if args.worker:asyncio.run(worker(args.fetch_root,args.instance,args.out,args.backend))
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--fetch-root',required=True);parser.add_argument('--instance',required=True);parser.add_argument('--out',required=True);parser.add_argument('--worker',action='store_true',help=argparse.SUPPRESS);parser.add_argument('--backend',choices=('direct','ray','ray-worker'),default='direct');args=parser.parse_args()
+    if args.worker:
+        if args.backend=='ray-worker':
+            from .native_worker_generation_probe import worker as live_worker
+            asyncio.run(live_worker(args.fetch_root,args.instance,args.out))
+        else:asyncio.run(worker(args.fetch_root,args.instance,args.out,args.backend))
     else:print(json.dumps(run(args.fetch_root,args.instance,args.out,args.backend)))

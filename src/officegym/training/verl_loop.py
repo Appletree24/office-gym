@@ -13,6 +13,7 @@ from .registry import REGISTRY
 from .token_budget import TokenLedger,GenerationBudget
 from .tool_execution import dispatch_generated_call,single_call
 from .worker_plugins import plugin_contents,verify_loop_sources
+from .rollout_context import ACTIVE_TRAJECTORY
 from verl.tools.schemas import ToolResponse
 from officegym.env.world import canonical
 
@@ -40,6 +41,7 @@ class OfficeGymAgentLoop(ToolAgentLoop):
         self._context_response_limit = False
         self._turn_limit_reached = False
         ledger = TokenLedger(trusted['token_ledger_path'],trusted['global_rollout_token_limit'])
+        context_token=ACTIVE_TRAJECTORY.set(trajectory)
         try:
             ledger.reserve(trajectory,actor,trusted['max_generation_tokens'])
             REGISTRY.acquire(trajectory,'__episode__',trusted['instance_dir'],actor,trusted.get('max_tool_calls',24),artifact_dir=Path(trusted['artifact_root'])/trajectory)
@@ -71,6 +73,7 @@ class OfficeGymAgentLoop(ToolAgentLoop):
             return output
         finally:
             self.server_manager=original_server
+            ACTIVE_TRAJECTORY.reset(context_token)
             try:
                 if not self._generation_uncertain:
                     row = ledger.db.execute('SELECT 1 FROM reservations WHERE trajectory=?',(trajectory,)).fetchone()
