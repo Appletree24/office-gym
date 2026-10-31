@@ -11,14 +11,18 @@ import time
 from pathlib import Path
 from officegym.env.world import canonical
 from .data import verify_mask
+from .evidence import TrainingEvidence,finite_logs
+from officegym.eval.artifacts import write_json
 
 
 def validate_plan(plan,data_dir):
-    for field in ('model_path','model_revision','max_steps','max_wall_seconds','locked_packages','max_sequence_tokens','micro_batch_size','gradient_accumulation_steps','learning_rate','lora'):
+    for field in ('model_path','model_revision','max_steps','max_wall_seconds','locked_packages','max_sequence_tokens','micro_batch_size','gradient_accumulation_steps','learning_rate','lora','checkpoint_interval_steps'):
         if field not in plan:
             raise ValueError('resolved training field missing: '+field)
     if type(plan['max_steps']) is not int or plan['max_steps']<1 or type(plan['max_wall_seconds']) not in (int,float) or not 0<plan['max_wall_seconds']<float('inf'):
         raise ValueError('finite optimizer and wall budgets required')
+    if type(plan['checkpoint_interval_steps']) is not int or not 1<=plan['checkpoint_interval_steps']<=plan['max_steps']:
+        raise ValueError('checkpoint interval must be within optimizer budget')
     if not Path(plan['model_path']).is_dir() or not plan['model_revision'] or plan['model_revision'].startswith('SET_'):
         raise ValueError('local locked model snapshot required')
     for key in ('max_sequence_tokens','micro_batch_size','gradient_accumulation_steps'):
@@ -86,22 +90,37 @@ def train(plan_path,data_dir,out):
                 'labels':torch.tensor([row['labels']+[-100]*(width-len(row['labels'])) for row in batch]),
                 'attention_mask':torch.tensor([[1]*len(row['input_ids'])+[0]*(width-len(row['input_ids'])) for row in batch])}
     started = time.monotonic()
+    evidence=TrainingEvidence(root)
     class WallBudget(TrainerCallback):
         def on_step_end(self,args,state,control,**kwargs):
             if time.monotonic()-started>=plan['max_wall_seconds']:
                 control.should_training_stop = True
             return control
+        def on_log(self,args,state,control,logs=None,**kwargs):
+            if getattr(state,'is_world_process_zero',True):
+                evidence.event('training_log',state.global_step,logs or {})
+        def on_save(self,args,state,control,**kwargs):
+            if getattr(state,'is_world_process_zero',True):
+                evidence.checkpoint(root/'trainer'/('checkpoint-'+str(state.global_step)),state.global_step)
     model = AutoModelForCausalLM.from_pretrained(plan['model_path'],revision=plan['model_revision'],local_files_only=True,trust_remote_code=False,torch_dtype=torch.bfloat16)
     model.config.use_cache = False
     lora = plan['lora']
-    args = SFTConfig(output_dir=str(root/'trainer'),max_steps=plan['max_steps'],per_device_train_batch_size=plan['micro_batch_size'],gradient_accumulation_steps=plan['gradient_accumulation_steps'],learning_rate=plan['learning_rate'],bf16=True,packing=False,dataset_kwargs={'skip_prepare_dataset':True},remove_unused_columns=False,report_to=[],logging_steps=1,save_strategy='no')
+    args = SFTConfig(output_dir=str(root/'trainer'),max_steps=plan['max_steps'],per_device_train_batch_size=plan['micro_batch_size'],gradient_accumulation_steps=plan['gradient_accumulation_steps'],learning_rate=plan['learning_rate'],bf16=True,packing=False,dataset_kwargs={'skip_prepare_dataset':True},remove_unused_columns=False,report_to=[],logging_steps=1,logging_nan_inf_filter=False,save_strategy='steps',save_steps=plan['checkpoint_interval_steps'],save_total_limit=None)
     trainer = SFTTrainer(model=model,args=args,train_dataset=dataset,processing_class=tokenizer,data_collator=collate,peft_config=LoraConfig(r=lora['rank'],lora_alpha=lora['alpha'],lora_dropout=lora['dropout'],target_modules=lora['target_modules'],task_type='CAUSAL_LM'),callbacks=[WallBudget()])
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
-    result = trainer.train()
+    try:
+        result = trainer.train()
+    except BaseException as exc:
+        evidence.event('training_failed',trainer.state.global_step,{'error_type':type(exc).__name__})
+        raise
+    finally:
+        evidence.history(trainer.state.log_history)
     trainer.save_model(str(root/'adapter'))
     tokenizer.save_pretrained(root/'adapter')
-    report = dict(training_branch=plan.get('training_branch','sft'),starting_checkpoint_sha256=manifest.get('starting_checkpoint_sha256'),metrics=result.metrics,optimizer_steps=trainer.state.global_step,wall_seconds=time.monotonic()-started,peak_allocated_bytes=torch.cuda.max_memory_allocated() if torch.cuda.is_available() else None,
+    final_checkpoint=evidence.checkpoint(root/'adapter',trainer.state.global_step,kind='final_adapter')
+    report = dict(checkpoint_interval_steps=plan['checkpoint_interval_steps'],final_checkpoint=final_checkpoint,training_branch=plan.get('training_branch','sft'),starting_checkpoint_sha256=manifest.get('starting_checkpoint_sha256'),metrics=result.metrics,optimizer_steps=trainer.state.global_step,wall_seconds=time.monotonic()-started,peak_allocated_bytes=torch.cuda.max_memory_allocated() if torch.cuda.is_available() else None,
                   dataset_samples_sha256=manifest['samples_sha256'],export_equivalence_status='pending',dev_evaluation_status='pending')
-    (root/'train_result.json').write_text(canonical(report)+'\n')
+    report=finite_logs(report)
+    write_json(root/'train_result.json',report)
     return report
