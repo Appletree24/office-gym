@@ -181,3 +181,14 @@ PYTHONPATH=src .venv-rl/bin/python -m officegym.training.native_inference_probe 
 ```
 
 当前 v2 完成两个并发原生循环、十次真实生成，返回的原生 batch 与逐轨迹请求／终局归档匹配；独立审计通过。仍是固定基模的零更新诊断：奖励均为零，无有效组，不证明 KL、实际权重同步或 GRPO 学习。默认 AgentLoopManager、文件系统隔离和恢复仍待验收。上限为 600 秒／36 GiB／2 GiB／1,024 个累计生成 token，无付费 API。
+
+默认 AgentLoopManager 的完整调度／合并路径（两个原生 worker）：
+
+```bash
+PYTHONPATH=src .venv-rl/bin/python -m officegym.training.native_inference_probe \
+  --backend ray-manager --fetch-root artifacts/qwen3_4b_base_cdbee75_v1 \
+  --instance artifacts/dataset_development_v10/train_atomic/T01_100000 \
+  --out artifacts/NEW_NATIVE_MANAGER_PROBE
+```
+
+当前 v2 通过默认 manager 分批、两个真实 worker 生成、结果合并与独立 token 审计；十次生成、奖励均为零，无 optimizer 更新。上限与前述原生探针相同。实际权重同步、KL、正向 GRPO 联训、文件系统隔离及恢复仍待验收。

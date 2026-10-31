@@ -22,12 +22,12 @@ def hydra_dataclass(value):
     return value
 
 
-def build_worker_config(model,root,base):
+def build_worker_config(model,root,base,num_workers=1):
     from omegaconf import OmegaConf
     from verl.workers.config.rollout import RolloutConfig,MultiTurnConfig,AgentLoopConfig
     from .worker_plugins import write_plugins
     root=Path(root);plugins=root/'worker_plugins';plugins.mkdir();records=write_plugins(plugins)
-    rollout=RolloutConfig(name='vllm',n=2,temperature=0.,calculate_log_probs=True,prompt_length=8192,response_length=4096,tensor_model_parallel_size=1,multi_turn=MultiTurnConfig(enable=True,tool_config_path=records['tools']['path'],max_assistant_turns=5,max_user_turns=30,max_parallel_calls=1,max_tool_response_length=20000,format='hermes'),agent=AgentLoopConfig(num_workers=1,default_agent_loop='officegym',agent_loop_config_path=records['agent_loop']['path']))
+    rollout=RolloutConfig(name='vllm',n=2,temperature=0.,calculate_log_probs=True,prompt_length=8192,response_length=4096,tensor_model_parallel_size=1,multi_turn=MultiTurnConfig(enable=True,tool_config_path=records['tools']['path'],max_assistant_turns=5,max_user_turns=30,max_parallel_calls=1,max_tool_response_length=20000,format='hermes'),agent=AgentLoopConfig(num_workers=num_workers,default_agent_loop='officegym',agent_loop_config_path=records['agent_loop']['path']))
     config=OmegaConf.create(dict(actor_rollout_ref=dict(rollout=hydra_dataclass(rollout),model={'_target_':'verl.workers.config.HFModelConfig','path':str(model),'trust_remote_code':False}),data={},distillation=None,trainer=dict(officegym_starting_actor_hash=base)))
     write_json(root/'worker_config_raw.json',OmegaConf.to_container(config,resolve=True))
     return config
@@ -43,7 +43,13 @@ class RecordingClient:
         trajectory=ACTIVE_TRAJECTORY.get()
         if not trajectory or trajectory not in REGISTRY.entries:raise ValueError('worker generation lacks task-local rollout identity')
         if set(kwargs)-set('request_id prompt_ids sampling_params image_data video_data mm_processor_output audio_data mm_processor_kwargs'.split()):raise ValueError('unexpected private metadata on model API')
-        self.paths.add(str(REGISTRY.entries[trajectory]['environment']._path))
+        world_path=str(REGISTRY.entries[trajectory]['environment']._path)
+        self.paths.add(world_path)
+        identity=self.root/'requests'/trajectory
+        identity.mkdir(parents=True,exist_ok=True)
+        if not (identity/'worker_world.json').exists():
+            import ray
+            write_json(identity/'worker_world.json',dict(pid=os.getpid(),actor_name=ray.get_runtime_context().get_actor_name(),cuda_visible_devices=os.environ.get('CUDA_VISIBLE_DEVICES'),world_path=world_path))
         self.total+=1;self.counts[trajectory]=self.counts.get(trajectory,0)+1
         if self.total>10 or self.counts[trajectory]>5:raise ValueError('native worker generation request cap')
         number=self.counts[trajectory]
@@ -72,7 +78,7 @@ class WorkerActor:
         return output
 
 
-async def worker(fetch_root,instance,root):
+async def worker(fetch_root,instance,root,use_manager=False):
     import numpy as np
     import ray
     from verl import DataProto
@@ -93,19 +99,30 @@ async def worker(fetch_root,instance,root):
     before=hashlib.sha256((instance/'initial_world.sqlite').read_bytes()).hexdigest()
     backend=await NativeRayBackend().start(model,root)
     base='base-worker-probe-'+plan['revision'];name='officegym_loop_worker_'+uuid4().hex
-    actor=ray.remote(WorkerActor).options(num_cpus=1,num_gpus=0,max_concurrency=4,name=name).remote(str(model),str(root),backend.balancer,base)
+    if use_manager:
+        from verl.experimental.agent_loop.agent_loop import AgentLoopManager
+        from verl.workers.rollout.llm_server import LLMServerClient
+        config=build_worker_config(model,root,base,num_workers=2)
+        recorder=RecordingClient(LLMServerClient(config,load_balancer_handle=backend.balancer),root)
+        manager=await AgentLoopManager.create(config,recorder)
+        assert len(manager.agent_loop_workers)==2
+    else:
+        actor=ray.remote(WorkerActor).options(num_cpus=1,num_gpus=0,max_concurrency=4,name=name).remote(str(model),str(root),backend.balancer,base)
     task=json.loads((instance/'task.json').read_text());public=initial_messages(task['public_task'],full=True)
     prompt=np.empty(2,dtype=object);prompt[:]=[public,public]
     metadata=[bind_actor_metadata(dict(instance_dir=str(instance),actor_version=base,max_generation_tokens=512,max_context_tokens=8192,max_tool_calls=4,token_ledger_path=str(root/'tokens.sqlite'),global_rollout_token_limit=1024,artifact_root=str(root/'trajectories')),base,0) for _ in range(2)]
     inputs=DataProto.from_dict(non_tensors=dict(raw_prompt=prompt,officegym=np.array(metadata,dtype=object),agent_name=np.array(['officegym']*2,dtype=object),uid=np.array(['one_real_instance_pair']*2,dtype=object),index=np.array([0,0])),meta_info=dict(global_steps=0))
-    output=await asyncio.wait_for(actor.generate.remote(inputs),240)
+    output=await asyncio.wait_for(manager.generate_sequences(inputs) if use_manager else actor.generate.remote(inputs),240)
+    if use_manager:
+        assert output.non_tensor_batch['priority'].tolist()==[0,1]
+        write_json(root/'manager_timing.json',{key:float(value) for key,value in output.meta_info['timing'].items()})
     validate_actor_batch(output.non_tensor_batch,base,0,expected_rows=2)
     write_json(root/'native_batch_tensors.json',{key:value.tolist() for key,value in output.batch.items()})
     rows=[]
     for index in range(2):
         trajectory=output.non_tensor_batch['officegym_trajectory_id'][index]
         archive=root/'trajectories'/trajectory;terminal=json.loads((archive/'terminal.json').read_text())
-        files=sorted((root/'requests'/trajectory).glob('*.json'));calls=[json.loads(path.read_text()) for path in files]
+        files=sorted((root/'requests'/trajectory).glob('[0-9][0-9][0-9][0-9].json'));calls=[json.loads(path.read_text()) for path in files]
         mask=output.batch['response_mask'][index];attention=output.batch['attention_mask'][index]
         pl=int(attention[:8192].sum());rl=int(attention[8192:].sum())
         prompt_ids=output.batch['prompts'][index,-pl:].tolist();ids=output.batch['responses'][index,:rl].tolist();bits=mask[:rl].tolist();probs=output.batch['rollout_log_probs'][index,:rl].tolist()
@@ -122,6 +139,12 @@ async def worker(fetch_root,instance,root):
         assert output.non_tensor_batch['officegym'][index]==metadata[index]
         rows.append(dict(trajectory_id=trajectory,generation_requests=len(calls),generated_tokens=sum(bits),environment_tokens=rl-sum(bits),tool_calls=terminal['tool_calls'],reward=terminal['reward'],termination_reason=terminal['termination_reason']))
     assert len({row['trajectory_id'] for row in rows})==2
+    if use_manager:
+        identities=[json.loads((root/'requests'/row['trajectory_id']/'worker_world.json').read_text()) for row in rows]
+        assert len({item['pid'] for item in identities})==2
+        assert len({item['world_path'] for item in identities})==2
+        assert all(not Path(item['world_path']).exists() for item in identities)
+        write_json(root/'manager_workers.json',dict(workers=identities,worlds_removed=True,native_manager_class=type(manager).__module__+'.'+type(manager).__name__))
     # The target instance and greedy base are expected to remain a diagnostic,
     # regardless of whether genuine rewards happen to differ.
     selected,stats=NativeGroupWindow(base,0,1,2).add(output,output.batch['rm_scores'],{})
@@ -129,5 +152,5 @@ async def worker(fetch_root,instance,root):
     with sqlite3.connect(root/'tokens.sqlite') as db:assert db.execute('SELECT sum(reserved),sum(observed) FROM reservations').fetchone()==(1024,sum(row['generated_tokens'] for row in rows))
     assert hashlib.sha256((instance/'initial_world.sqlite').read_bytes()).hexdigest()==before
     write_json(root/'native_batch_metadata.json',{key:output.non_tensor_batch[key].tolist() for key in ('officegym','uid','officegym_actor_version','officegym_actor_update_step','officegym_actor_version_verified','officegym_trajectory_id','min_global_steps','max_global_steps')})
-    write_json(root/'report.json',dict(passed_native_protocol=True,kind='live-native-ray-agentloopworker-base-probe-not-formal-grpo',backend='ray-worker',model_revision=plan['revision'],model_generations=sum(row['generation_requests'] for row in rows),rollouts=rows,local_http_requests=2,paid_api_requests=0,optimizer_updates=0,teacher_samples=0,worker_generate_sequences_used=True,default_agentloop_manager_used=False,physical_weight_sync_verified=False,actor_reference_verified=False,filesystem_worker_isolation_verified=False,effective_groups=stats['effective_groups'],source_snapshot_sha256=before,executed_source_hashes={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in root.glob('executed_*')}))
+    write_json(root/'report.json',dict(passed_native_protocol=True,kind='live-native-ray-agentloopworker-base-probe-not-formal-grpo',backend='ray-manager' if use_manager else 'ray-worker',model_revision=plan['revision'],model_generations=sum(row['generation_requests'] for row in rows),rollouts=rows,local_http_requests=2,paid_api_requests=0,optimizer_updates=0,teacher_samples=0,worker_generate_sequences_used=True,default_agentloop_manager_used=use_manager,physical_weight_sync_verified=False,actor_reference_verified=False,filesystem_worker_isolation_verified=False,effective_groups=stats['effective_groups'],source_snapshot_sha256=before,executed_source_hashes={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in root.glob('executed_*')}))
     backend.shutdown()

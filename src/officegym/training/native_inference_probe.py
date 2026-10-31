@@ -126,7 +126,7 @@ async def worker(fetch_root,instance,root,backend='direct'):
 
 
 def run(fetch_root,instance,out,backend='direct'):
-    if backend not in ('direct','ray','ray-worker'):raise ValueError('explicit direct/ray probe backend required')
+    if backend not in ('direct','ray','ray-worker','ray-manager'):raise ValueError('explicit direct/ray probe backend required')
     root=Path(out).resolve();root.mkdir(parents=True,exist_ok=False)
     artifact_dirs=[root]
     if backend.startswith('ray'):
@@ -181,10 +181,10 @@ def run(fetch_root,instance,out,backend='direct'):
 
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--fetch-root',required=True);parser.add_argument('--instance',required=True);parser.add_argument('--out',required=True);parser.add_argument('--worker',action='store_true',help=argparse.SUPPRESS);parser.add_argument('--backend',choices=('direct','ray','ray-worker'),default='direct');args=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--fetch-root',required=True);parser.add_argument('--instance',required=True);parser.add_argument('--out',required=True);parser.add_argument('--worker',action='store_true',help=argparse.SUPPRESS);parser.add_argument('--backend',choices=('direct','ray','ray-worker','ray-manager'),default='direct');args=parser.parse_args()
     if args.worker:
-        if args.backend=='ray-worker':
+        if args.backend in ('ray-worker','ray-manager'):
             from .native_worker_generation_probe import worker as live_worker
-            asyncio.run(live_worker(args.fetch_root,args.instance,args.out))
+            asyncio.run(live_worker(args.fetch_root,args.instance,args.out,use_manager=args.backend=='ray-manager'))
         else:asyncio.run(worker(args.fetch_root,args.instance,args.out,args.backend))
     else:print(json.dumps(run(args.fetch_root,args.instance,args.out,args.backend)))
