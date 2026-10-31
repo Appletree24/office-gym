@@ -108,3 +108,14 @@ ChatPolicy 默认 `tool_choice=auto`，使用模型原生工具格式；配置�
 verl 保存事件桥接已实现，绑定固定 commit 的 8 个源码哈希，要求 `trainer.use_v1=false`、同步保存、保留全部 checkpoint，以及 run 内的绝对输出路径。首版每个训练步只允许一个 mini-batch／PPO epoch，并核对有限梯度和独立更新计数，避免把 global_steps 直接当成优化器调用次数。控制器测试已验证完整分片记录和缺失分片拒绝；测试 worker 是明确标注的 CPU fixture，尚不代表真实 FSDP/GRPO 验收。具体必需字段见 configs/grpo_plan.json 的 intent 合同和 IMPLEMENTATION_STATUS.md。
 
 现代 RL 环境单独位于 .venv-rl（Torch 2.13/CUDA 13、Transformers 5.16、vLLM 0.32），依赖与源码配方见 requirements-rl.lock、configs/rl_runtime_source.json；旧服务／SFT 环境保持不变。真实单 GPU FSDP2 保存恢复探针：`PYTHONPATH=src .venv-rl/bin/python -m officegym.training.fsdp_probe --fetch-root artifacts/qwen3_4b_base_cdbee75_v1 --checkout artifacts/verl_checkout_v1/repo --out artifacts/NEW_FSDP_PROBE`。v3 实测 4B 权重完成原生 checkpoint 保存、故意扰动、恢复及下一步更新，恢复分支与未中断分支逐字节一致（44.14s）。这是两条手写协议样本上的后端连续性验证，尚非真实 GRPO 或正式训练结论。
+
+原生 verl 循环的 CPU 协议探针（需要已锁定的 `.venv-rl`）：
+
+```bash
+PYTHONPATH=src .venv-rl/bin/python -m officegym.training.native_loop_probe \
+  --instance artifacts/dataset_development_v10/train_atomic/T01_100000 \
+  --model artifacts/qwen3_4b_base_cdbee75_v1/model \
+  --out artifacts/NEW_NATIVE_PROTOCOL
+```
+
+该入口运行真实上游 AgentLoop、tokenizer、工具和评分器，但生成端提供人工 token/logprob，不是模型 rollout。它验证并发世界隔离、原始 IDs/mask/logprob 保留、容量拒绝与资源释放，限时 180 秒；当前 v4 的八项检查通过。正式 GRPO、actor/reference 与权重同步验收仍待完成，详见 IMPLEMENTATION_STATUS.md。

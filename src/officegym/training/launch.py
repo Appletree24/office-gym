@@ -11,7 +11,7 @@ from pathlib import Path
 from officegym.env.world import canonical
 from .rollout_contract import validate_rollout_contract
 from .verl_entry import bound_command,load_resolved
-from .worker_plugins import validate_plugins
+from .worker_plugins import validate_plugins,verify_loop_sources
 from .prepare_rl import validate_preparation
 
 VERL_COMMIT = '8df5baeed0f5ecdd7f870d83bc3d79194816e2a9'
@@ -129,6 +129,7 @@ def launch(config_path,out,smoke=False):
     if Path(resolved['trainer']['officegym_evidence_root']).resolve()!=root:raise ValueError('native evidence root differs from launch output')
     from .verl_checkpoint import verify_sources
     verify_sources(config['verl_checkout'])
+    verify_loop_sources(config['verl_checkout'])
     root.mkdir(parents=True,exist_ok=False)
     (root/'launch_config.json').write_text(canonical(config)+'\n')
     resolved = load_resolved(config['resolved_upstream_config'],config['resolved_upstream_sha256'])

@@ -20,4 +20,4 @@ officegym = "officegym.cli:main"
 [tool.setuptools.package-data]
 "officegym.resources" = ["*.sql", "*.json"]
 
-"officegym.training" = ["verl_checkpoint_sources.json"]
+"officegym.training" = ["verl_checkpoint_sources.json", "verl_loop_sources.json"]

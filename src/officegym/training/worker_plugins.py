@@ -6,6 +6,16 @@ from officegym.env.world import canonical
 from officegym.tools.schema import tool_schemas
 
 
+def verify_loop_sources(checkout):
+    root=Path(checkout).resolve()
+    hashes=json.loads(Path(__file__).with_name('verl_loop_sources.json').read_text())
+    for name,expected in hashes.items():
+        path=root/name
+        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest()!=expected:
+            raise ValueError('pinned native AgentLoop source differs: '+name)
+    return hashes
+
+
 def plugin_contents():
     tools=[]
     for tool in tool_schemas():

@@ -12,13 +12,18 @@ from officegym.tools.schema import tool_schemas
 from .registry import REGISTRY
 from .token_budget import TokenLedger,GenerationBudget
 from .tool_execution import dispatch_generated_call,single_call
-from .worker_plugins import plugin_contents
+from .worker_plugins import plugin_contents,verify_loop_sources
 from verl.tools.schemas import ToolResponse
 from officegym.env.world import canonical
 
 
 @register('officegym')
 class OfficeGymAgentLoop(ToolAgentLoop):
+    def __init__(self,*args,**kwargs):
+        import inspect
+        verify_loop_sources(Path(inspect.getfile(ToolAgentLoop)).resolve().parents[3])
+        super().__init__(*args,**kwargs)
+
     async def run(self,sampling_params,priority=0,**kwargs):
         trusted = kwargs['officegym']
         actor = trusted['actor_version']
@@ -27,6 +32,7 @@ class OfficeGymAgentLoop(ToolAgentLoop):
         self._generation_budget = GenerationBudget(trusted['max_generation_tokens'],trusted['max_context_tokens'])
         self._generation_uncertain = False
         self._invalid_tool_batch = False
+        self._context_response_limit = False
         ledger = TokenLedger(trusted['token_ledger_path'],trusted['global_rollout_token_limit'])
         try:
             ledger.reserve(trajectory,actor,trusted['max_generation_tokens'])
@@ -46,7 +52,7 @@ class OfficeGymAgentLoop(ToolAgentLoop):
             output = await super().run(sampling_params,priority=priority,**kwargs)
             if output.response_logprobs is None:
                 raise ValueError('native rollout logprobs required; enable backend reporting')
-            reason = ('invalid_tool_batch' if self._invalid_tool_batch else 'generation_budget' if self._generation_budget.stopped else 'response_limit' if len(output.response_ids)>=self.response_length else 'policy_terminated')
+            reason = ('invalid_tool_batch' if self._invalid_tool_batch else 'generation_budget' if self._generation_budget.stopped else 'response_limit' if self._context_response_limit or len(output.response_ids)>=self.response_length else 'policy_terminated')
             terminal = REGISTRY.finalize(trajectory,input_ids=output.response_ids,response_mask=output.response_mask,
                                          token_roles=['assistant' if bit else 'tool' for bit in output.response_mask],
                                          logprobs=output.response_logprobs,actor_version=actor,termination_reason=reason)
@@ -65,8 +71,33 @@ class OfficeGymAgentLoop(ToolAgentLoop):
                 finally:
                     REGISTRY.release(trajectory,'__episode__')
 
+    def _cap_text_prompt_length(self,prompt_ids):
+        # Upstream silently left-truncates text prompts. P0 requires the whole
+        # public task/schema/history, so reject this configuration before serving.
+        if len(prompt_ids)>self.rollout_config.prompt_length:
+            raise ValueError('OfficeGym initial prompt exceeds native prompt capacity; truncation forbidden')
+        if len(prompt_ids)>=self._generation_budget.context_limit:
+            raise ValueError('OfficeGym initial prompt leaves no generation context; truncation forbidden')
+        return prompt_ids
+
+    async def ct_merge_context_msg(self,*args,**kwargs):
+        result=await super().ct_merge_context_msg(*args,**kwargs)
+        merge,mask,_=result
+        # Upstream returns TERMINATED before committing an over-cap observation
+        # to AgentData. Its old output length alone cannot reveal that overflow.
+        if len(mask)>=self.response_length:
+            self._context_response_limit=True
+        if len(merge.token_ids)>self._generation_budget.context_limit:
+            self._generation_budget.stopped=True
+        return result
+
     async def _handle_generating_state(self,agent_data,sampling_params,ignore_termination=False):
         requested = sampling_params.get('max_tokens',self.response_length)
+        remaining=self.response_length-len(agent_data.response_mask)
+        if remaining<=0:
+            self._context_response_limit=True
+            return AgentState.TERMINATED
+        requested=min(requested,remaining)
         cap = self._generation_budget.next_cap(len(agent_data.prompt_ids),requested)
         if cap==0:
             return AgentState.TERMINATED
@@ -87,7 +118,14 @@ class OfficeGymAgentLoop(ToolAgentLoop):
         if not single_call(agent_data.tool_calls):
             self._invalid_tool_batch = True
             return AgentState.TERMINATED
+        before=(list(agent_data.prompt_ids),list(agent_data.response_mask),list(agent_data.response_logprobs))
         state = await super()._handle_processing_tools_state(agent_data)
+        if self._generation_budget.stopped:
+            # The oversized observation was never sent to generation. Keep the
+            # exact previously observed policy trajectory; archive the executed
+            # action/result and final snapshot separately and score budget failure.
+            agent_data.prompt_ids,agent_data.response_mask,agent_data.response_logprobs=before
+            return AgentState.TERMINATED
         environment = REGISTRY.entries[self._officegym_trajectory]['environment']
         if environment._client.meta('finished'):
             return AgentState.TERMINATED
