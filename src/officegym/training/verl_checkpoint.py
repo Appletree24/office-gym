@@ -5,6 +5,7 @@ import inspect
 import json
 import math
 import numbers
+import time
 from pathlib import Path
 from .evidence import TrainingEvidence,checkpoint_inventory
 
@@ -78,6 +79,20 @@ def record_saved_checkpoint(config,step,evidence=None):
 
 def observed_trainer_class(base,config,evidence):
     class ObservedTrainer(base):
+        def fit(self):
+            if not hasattr(type(self),'_officegym_native_fit'):raise ValueError('pinned effective-group native fit not installed')
+            try:return self._officegym_native_fit()
+            finally:
+                window=getattr(self,'_officegym_group_window',None)
+                if window is not None:
+                    evidence.event('effective_group_sampling_end',window.step,dict(skip_reason='training_ended_before_effective_target',actor_version=window.actor,candidate_groups=window.candidates,effective_groups=window.effective,rollout_tokens=window.tokens))
+                    self._officegym_group_window=None
+                count=getattr(self,'_officegym_optimizer_steps',0)
+                evidence.event('native_training_end',count,dict(requested_updates=config['trainer']['total_training_steps'],target_met=count==config['trainer']['total_training_steps']))
+                if hasattr(self,'_dump_executor') and not self._dump_executor._shutdown:self._shutdown_dump_executor()
+        def _officegym_collect_effective(self,batch,rewards,extras,metrics):
+            from .native_groups import collect_native
+            return collect_native(self,batch,rewards,extras,metrics,config,evidence)
         def _validate(self,*args,**kwargs):
             self._officegym_validating=True
             try:return super()._validate(*args,**kwargs)
@@ -88,6 +103,7 @@ def observed_trainer_class(base,config,evidence):
             count=getattr(self,'_officegym_optimizer_steps',0)
             expected=count if getattr(self,'_officegym_validating',False) else count+1
             if self.global_steps!=expected:raise ValueError('rollout dispatch differs from verified optimizer counter')
+            if not getattr(self,'_officegym_validating',False) and getattr(self,'_officegym_group_window',None) is None:self._officegym_sampling_started=time.monotonic()
             result=super()._get_gen_batch(batch)
             column=result.non_tensor_batch['officegym'].copy()
             if not len(column):raise ValueError('nonempty native rollout dispatch required')
@@ -104,6 +120,8 @@ def observed_trainer_class(base,config,evidence):
             if initial is not None:
                 from .actor_version import validate_actor_batch,actor_identity
                 validate_actor_batch(batch.non_tensor_batch,initial,count,expected_rows=len(batch))
+                from .native_groups import validate_effective_admission
+                validate_effective_admission(batch,config,count)
             result=super()._update_actor(batch)
             def values(value):
                 if isinstance(value,numbers.Real) and type(value) is not bool:return [float(value)]
@@ -147,6 +165,10 @@ def run_task(instance,config):
     evidence.event('backend_rollout_source_lock',0,verify_loop_sources(checkout))
     if Path(inspect.getfile(upstream.RayPPOTrainer)).resolve()!=checkout/'verl/trainer/ppo/ray_trainer.py':raise ValueError('runtime trainer is outside locked checkout')
     trainer=observed_trainer_class(upstream.RayPPOTrainer,config,evidence)
+    import verl.trainer.ppo.ray_trainer as native_trainer
+    from .native_groups import instrument_fit
+    trainer._officegym_native_fit=instrument_fit(checkout/'verl/trainer/ppo/ray_trainer.py',SOURCE_HASHES['verl/trainer/ppo/ray_trainer.py'],vars(native_trainer))
+    evidence.event('native_fit_instrumentation',0,dict(transform='effective-groups-after-extract-reward-v1',upstream_source_sha256=SOURCE_HASHES['verl/trainer/ppo/ray_trainer.py'],instrumentation_source_sha256=hashlib.sha256(Path(inspect.getfile(instrument_fit)).read_bytes()).hexdigest()))
     original=tracking.Tracking;tracking.Tracking=observed_tracking_class(original,config.trainer.total_training_steps,evidence)
     try:
         method=extract_method(checkout/'verl/trainer/main_ppo_v0.py',SOURCE_HASHES['verl/trainer/main_ppo_v0.py'],'TaskRunner','run',dict(vars(upstream),RayPPOTrainer=trainer))

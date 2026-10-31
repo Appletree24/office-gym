@@ -67,7 +67,7 @@ class OfficeGymAgentLoop(ToolAgentLoop):
                                          logprobs=output.response_logprobs,actor_version=actor,termination_reason=reason)
             output.reward_score = terminal['reward']
             output.extra_fields.update(officegym_termination_reason=reason,officegym_actor_version=actor,officegym_final_hash=terminal['final_state_hash'],officegym_tool_calls=terminal['tool_calls'],officegym_generated_tokens=self._generation_budget.observed,officegym_invalid_tool_batch=self._invalid_tool_batch)
-            output.extra_fields.update(officegym_actor_update_step=checked_step,officegym_actor_version_verified=version_guard is not None and version_guard.checks>0)
+            output.extra_fields.update(officegym_actor_update_step=checked_step,officegym_actor_version_verified=version_guard is not None and version_guard.checks>0,officegym_trajectory_id=trajectory)
             return output
         finally:
             self.server_manager=original_server

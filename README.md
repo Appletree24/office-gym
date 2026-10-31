@@ -118,7 +118,7 @@ PYTHONPATH=src .venv-rl/bin/python -m officegym.training.native_loop_probe \
   --out artifacts/NEW_NATIVE_PROTOCOL
 ```
 
-该入口运行真实上游 AgentLoop、tokenizer、工具和评分器，但生成端提供人工 token/logprob，不是模型 rollout。它验证并发世界隔离、原始 IDs/mask/logprob 保留、容量拒绝与资源释放，限时 180 秒；当前 v8 的十四项检查通过。正式 GRPO、actor/reference 与权重同步验收仍待完成，详见 IMPLEMENTATION_STATUS.md。
+该入口运行真实上游 AgentLoop、tokenizer、工具和评分器，但生成端提供人工 token/logprob，不是模型 rollout。它验证并发世界隔离、原始 IDs/mask/logprob 保留、容量拒绝与资源释放，限时 180 秒；当前 v9 的十四项检查通过。正式 GRPO、actor/reference 与权重同步验收仍待完成，详见 IMPLEMENTATION_STATUS.md。
 
 新 RL 环境中的真实基模/vLLM 原始 token 接入探针：
 
@@ -139,3 +139,12 @@ PYTHONPATH=src .venv-rl/bin/python scripts/probe_native_actor_dispatch.py \
 ```
 
 正式启动配置须将 `trainer.officegym_starting_actor_hash` 绑定到已验收的 SFT 导出哈希。控制器按完成更新次数标记每条轨迹，循环逐次检查 backend 版本，更新前拒绝混合版本 batch。这些检查不证明实际权重已同步；真实 Ray／权重同步／KL／GRPO 更新验收仍待执行。
+
+原生有效组／补采样控制流探针：
+
+```bash
+PYTHONPATH=src .venv-rl/bin/python scripts/probe_native_effective_groups.py \
+  --checkout artifacts/verl_checkout_v1/repo --out artifacts/NEW_NATIVE_GROUPS
+```
+
+该探针使用真实 DataProto 与固定上游 `fit`，奖励和后端为明确标注的人工构造，限时 180 秒。当前 v5 验证了四倍候选上限、同版本补采样、零方差组跳过且不推进更新计数、有效组原始 token 保留和重复轨迹拒绝。它没有执行真实 optimizer／KL 或证明物理权重同步；完整联训验收仍待完成。
