@@ -3,7 +3,7 @@
   "status": "implementation_plan_not_measured_results",
   "model": {
     "student": "Qwen/Qwen3-4B-Instruct-2507",
-    "revision": "SET_AFTER_SERVER_PROBE",
+    "revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
     "teacher": "SET_BY_OPERATOR",
     "api_key_env": "OFFICEGYM_API_KEY"
   },

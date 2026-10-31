@@ -77,4 +77,16 @@ CUDA 基础运行时已在 A800 上验证 PyTorch 2.8.0+cu128／CUDA 12.8。独�
 PYTHONPATH=src .venv-serve/bin/python -m officegym.eval.cuda_probe --out artifacts/NEW_CUDA_PROBE
 ```
 
-安装器总时限 600 秒，wheel／环境／临时目录上限分别为 6／12／6 GiB；[版本来源为官方 PyTorch 安装说明](https://pytorch.org/get-started/previous-versions/)。GPU 探针要求设备空闲，子进程限时 60 秒，检查 FP32／BF16 矩阵乘法误差及有限、非零反向梯度，限制 PyTorch allocator 分配至 256 MiB。该指标不包含驱动上下文，也不证明模型显存可行性。探针输出保留 model_compatibility_pending；真实模型权重、推理、服务和优化器 smoke 仍须后续验证。当前 .venv-serve 只安装最小 Torch 运行时，尚未具备完整模型服务依赖。
+安装器总时限 600 秒，wheel／环境／临时目录上限分别为 6／12／6 GiB；[版本来源为官方 PyTorch 安装说明](https://pytorch.org/get-started/previous-versions/)。GPU 探针要求设备空闲，子进程限时 60 秒，检查 FP32／BF16 矩阵乘法误差及有限、非零反向梯度，限制 PyTorch allocator 分配至 256 MiB。该指标不包含驱动上下文，也不证明模型显存可行性。探针输出保留 model_compatibility_pending；完整模型服务、业务任务评测和优化器 smoke 仍须后续验证。当前 .venv-serve 已安装 Torch／Transformers 探针栈，本地模型 HTTP 服务与 vLLM 栈仍待搭建和验证。
+
+
+固定 Qwen revision 的完整文件现已下载并通过内容哈希校验，真实 BF16 4B 模型已在 A800 上完成单次工具生成探针。可复跑入口（输出目录须全新）：
+
+```bash
+PYTHONPATH=src .venv/bin/python -m officegym.training.fetch_model --out artifacts/NEW_QWEN_FETCH --seed-tokenizer artifacts/qwen-tokenizer
+# 仅在确认先前下载进程已终止后，使用同一目录和 --resume 续传；模型来源与资源上限保持不变。
+.venv-serve/bin/python -m pip install --require-hashes -r requirements-serve.lock
+PYTHONPATH=src .venv-serve/bin/python -m officegym.eval.model_probe --fetch-root artifacts/NEW_QWEN_FETCH --out artifacts/NEW_MODEL_PROBE
+```
+
+下载上限为 10 GiB／1,800 秒，保留失败记录与分片，校验 LFS SHA256／Git blob SHA1 后才接受；结果中的 result.json 是协调器资源验收，verified.json 仅表示文件校验。模型探针使用原始模板、全部工具 schema、最多 128 个生成 token、120 秒和 16 GiB PyTorch allocator 上限。当前真实结果为 2,415 输入／16 输出 token，正确生成 board.read({})；业务工具执行、完整任务成功率和训练效果仍须另行验证。requirements-serve.lock 是实际探针栈，不替代后续 vLLM／verl／TRL 版本冻结。
