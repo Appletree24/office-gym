@@ -1,5 +1,6 @@
 """Construct labelled tool-executed counterexamples, preserving all action logs."""
 from pathlib import Path
+import sqlite3
 from officegym.env.world import World,canonical
 from officegym.tools.dispatcher import Dispatcher
 
@@ -8,7 +9,7 @@ def generate_cases(out):
     root = Path(out)
     root.mkdir(parents=True,exist_ok=False)
     cases = []
-    designs = [('legal',True,[]),('alternative_slot',True,[]),('wrong_recipient',False,['wrong_recipient']),('duplicate_invitation',False,['duplicate_external_effect']),('missing_invitation',False,['no_valid_invited_meeting']),('wrong_duration',False,['no_valid_invited_meeting']),('unapproved',False,['unapproved_external_send']),('message_cap',False,['message_cap_exceeded'])]
+    designs = [('legal',True,[]),('alternative_slot',True,[]),('wrong_recipient',False,['wrong_recipient']),('duplicate_invitation',False,['duplicate_external_effect']),('missing_invitation',False,['no_valid_invited_meeting']),('wrong_duration',False,['no_valid_invited_meeting']),('unapproved',False,['unapproved_external_send']),('message_cap',False,['message_cap_exceeded']),('stale_material',False,['no_valid_invited_meeting']),('missing_attachment',False,['missing_attachment']),('timezone_offset',False,['no_valid_invited_meeting']),('unrelated_cancellation',False,['unrelated_data_mutation'])]
     for name,expected,violations in designs:
         directory = root/name
         directory.mkdir()
@@ -28,8 +29,28 @@ def generate_cases(out):
                 if not result['ok']:
                     raise RuntimeError(result)
                 return result['data']
+            if name in ('stale_material','missing_attachment'):
+                call('documents.put',dict(document_id='brief',expected_version=0,title='Brief',content='Version one'),'doc1')
+                with world.db:
+                    world.db.execute("UPDATE documents SET acl_json=? WHERE document_id='brief'",(canonical(['a','b']),))
+                if name=='stale_material':
+                    call('documents.put',dict(document_id='brief',expected_version=1,title='Brief',content='Version two'),'doc2')
+                    spec['required_document_refs'] = [dict(document_id='brief',version=2)]
+                else:
+                    spec['required_attachment_refs'] = [dict(document_id='brief',version=1)]
+            background = None
+            if name=='unrelated_cancellation':
+                background = call('calendar.create',dict(title='Existing appointment',participant_ids=['c'],start_at=9000,end_at=9600),'background')
+                with sqlite3.connect(directory/'initial.sqlite') as snapshot:
+                    world.db.backup(snapshot)
+            (directory/'spec.json').write_text(canonical(spec))
             start = 4000 if name=='alternative_slot' else 3000
-            meeting = call('calendar.create',dict(title='Review',participant_ids=['b'],start_at=start,end_at=start+(900 if name=='wrong_duration' else 1800)),'create')
+            if name=='timezone_offset':
+                start += 8*3600
+            meeting_args = dict(title='Review',participant_ids=['b'],start_at=start,end_at=start+(900 if name=='wrong_duration' else 1800))
+            if name=='stale_material':
+                meeting_args['document_refs'] = [dict(document_id='brief',version=1)]
+            meeting = call('calendar.create',meeting_args,'create')
             args = dict(recipient_ids=['c'] if name=='wrong_recipient' else ['b'],kind='invitation',subject='Review',body='',meeting_id=meeting['id'],meeting_version=1)
             if name!='missing_invitation':
                 call('mail.send',args,'invite')
@@ -37,8 +58,12 @@ def generate_cases(out):
                 call('mail.send',args,'duplicate')
             if name=='message_cap':
                 call('mail.send',dict(recipient_ids=['b'],kind='coordination',subject='Extra',body='Extra'),'extra')
+            if background:
+                call('calendar.cancel',dict(meeting_id=background['id'],expected_version=1,reason='Fixture cancellation'),'cancel_unrelated')
             call('task.finish',{'summary':'done'},None)
         world.close()
         cases.append(dict(case_id=name,category=name,label_source='hand_authored_constraint_fixture_v1',expected_success=expected,expected_violations=violations,spec=name+'/spec.json',final_world=name+'/final.sqlite',mutation_location=name+'/actions.jsonl'))
+        if name=='unrelated_cancellation':
+            cases[-1]['initial_world'] = name+'/initial.sqlite'
     (root/'cases.json').write_text(canonical(cases))
     return len(cases)
