@@ -23,6 +23,14 @@ def render_messages(messages):
     return rendered
 
 
+def response_message(response):
+    choices = response.get('choices')
+    if not isinstance(choices,list) or len(choices)!=1 or not isinstance(choices[0],dict):
+        return {}
+    message = choices[0].get('message')
+    return message if isinstance(message,dict) else {}
+
+
 class ChatPolicy:
     policy_kind = 'inference_service'
     def __init__(self,endpoint,model,model_version,*,api_key_env=None,max_output_tokens=1024,temperature=0,transport=None):
@@ -58,10 +66,12 @@ class ChatPolicy:
 
     def generate(self,messages,tool_schemas,remaining_budget):
         response,usage = self._request(render_messages(messages),remaining_budget,tool_schemas)
-        calls = response['choices'][0]['message'].get('tool_calls',[])
+        calls = response_message(response).get('tool_calls',[])
+        calls = calls if isinstance(calls,list) else []
         name,args = None,None
-        if len(calls)==1:
+        if len(calls)==1 and isinstance(calls[0],dict):
             function = calls[0].get('function',{})
+            function = function if isinstance(function,dict) else {}
             name = function.get('name')
             try:
                 args = json.loads(function.get('arguments',''))
@@ -74,7 +84,7 @@ class ChatPolicy:
         prompt = [{'role':'system','content':'Summarize prior interactions as a JSON object with list fields '+','.join(sorted(FullContext.REQUIRED))+'. Evidence entries need source_refs. Separate confirmed facts from hypotheses. Preserve uncertain operations. Never infer approval from a request.'}, {'role':'user','content':canonical(messages)}]
         response,usage = self._request(prompt,remaining_budget)
         try:
-            summary = json.loads(response['choices'][0]['message']['content'])
+            summary = json.loads(response_message(response).get('content'))
         except (ValueError,TypeError):
             summary = {}
-        return dict(summary=summary,input_tokens=usage['prompt_tokens'],output_tokens=usage['completion_tokens'],model_version=self.model_version,sampling_parameters={'temperature':self.temperature})
+        return dict(summary=summary,input_tokens=usage['prompt_tokens'],output_tokens=usage['completion_tokens'],model_version=self.model_version,sampling_parameters={'temperature':self.temperature},raw=response)

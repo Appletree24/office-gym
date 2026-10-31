@@ -132,7 +132,7 @@ class FullContext(SimpleContext):
             for field in ('input_tokens','output_tokens'):
                 if type(record.get(field)) is not int or record[field]<0:
                     raise ValueError('summary must report measured token usage')
-            usage = dict(summary_input_tokens=record['input_tokens'],summary_output_tokens=record['output_tokens'])
+            usage = dict(summary_input_tokens=record['input_tokens'],summary_output_tokens=record['output_tokens'],summary_raw=record.get('raw'))
             summary = record.get('summary',{})
             valid = grounded_summary(summary,self.REQUIRED,source)
             if not valid:
