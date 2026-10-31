@@ -56,3 +56,9 @@ Added a transactional SQLite rollout-token reservation ledger and per-generation
 Expanded the labelled grader suite to 12 tool-executed cases: two legal alternatives and ten negatives, including stale materials, missing attachments, an eight-hour scheduling offset and cancellation of an unrelated pre-existing meeting. The last case supplies an initial snapshot for independent mutation comparison. artifacts/grader_cases_v3 and artifacts/grader_report_v3 preserve action traces and grades: 10/10 negatives detected, zero legal false positives, zero label mismatches. These are authored software fixtures, not model-discovered exploits; the interrupted v2 generation is incomplete and is not a report source.
 
 Full CPU/protocol regression suite: 118 tests passed. No real model/training or frozen experimental gate is newly satisfied by this checkpoint.
+
+## Trusted rollout resource contract checkpoint
+
+The GRPO launcher now requires and validates rollout_contract: global limit must equal the launch max_rollout_tokens, per-trajectory reservations must fit, initial actor must match the starting checkpoint, and ledger/archive paths must be absolute. training/rollout_contract.py provides copy-on-bind row metadata with conflict rejection so data rows cannot silently replace these limits. Regression coverage includes budget/actor mismatches, relative paths and per-row overrides; full suite: 120 tests passed.
+
+This is preflight and binding infrastructure, not proof of end-to-end budget enforcement: the concrete upstream dataset serialization/loading entrypoint must still invoke the binding function, updated actor versions must be supplied by real synchronization, and multi-host storage semantics and vLLM generation caps must be runtime-tested. No GPU or model experimental gate is complete.

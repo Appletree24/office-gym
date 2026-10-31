@@ -9,13 +9,14 @@ import subprocess
 import time
 from pathlib import Path
 from officegym.env.world import canonical
+from .rollout_contract import validate_rollout_contract
 
 VERL_COMMIT = '8df5baeed0f5ecdd7f870d83bc3d79194816e2a9'
 SMOKE_CHECKS = {'isolated_worlds','native_token_ids','tool_loss_mask_zero','initial_actor_reference_kl','parameter_update','actor_version_sync','checkpoint_export_evaluation'}
 
 
 def validate_launch(config,smoke=False):
-    required = {'verl_commit','verl_checkout','locked_packages','resolved_upstream_config','resolved_upstream_sha256','command','max_updates','max_wall_seconds','max_rollout_tokens','starting_checkpoint_hash','reference_checkpoint_hash','group_size'}
+    required = {'verl_commit','verl_checkout','locked_packages','resolved_upstream_config','resolved_upstream_sha256','command','max_updates','max_wall_seconds','max_rollout_tokens','starting_checkpoint_hash','reference_checkpoint_hash','group_size','rollout_contract'}
     if required-set(config):
         raise ValueError('missing locked launch fields: '+','.join(sorted(required-set(config))))
     if config['verl_commit']!=VERL_COMMIT:
@@ -31,6 +32,7 @@ def validate_launch(config,smoke=False):
         raise ValueError('smoke launch limited to five updates')
     if config['starting_checkpoint_hash']!=config['reference_checkpoint_hash'] or not config['starting_checkpoint_hash'] or config['starting_checkpoint_hash'].startswith('SET_'):
         raise ValueError('actor and reference must start from identical exported SFT')
+    validate_rollout_contract(config['rollout_contract'],config['max_rollout_tokens'],config['starting_checkpoint_hash'])
     command = config['command']
     if not isinstance(command,list) or not command or any(not isinstance(arg,str) or not arg for arg in command):
         raise ValueError('explicit argv list required')
