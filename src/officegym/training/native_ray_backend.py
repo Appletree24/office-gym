@@ -15,7 +15,7 @@ from officegym.eval.artifacts import write_json
 
 
 class NativeRayBackend:
-    async def start(self,model,root):
+    async def start(self,model,root,lora_rank=0):
         import ray
         from omegaconf import OmegaConf
         from verl.workers.config.model import HFModelConfig
@@ -31,7 +31,8 @@ class NativeRayBackend:
         ray.init(address='local',num_cpus=4,num_gpus=1,include_dashboard=False,object_store_memory=80*1024**2,_memory=1024**3,_node_ip_address='127.0.0.1',_temp_dir=str(runtime),log_to_driver=False,namespace='officegym-'+uuid4().hex)
         config=RolloutConfig(name='vllm',n_gpus_per_node=1,nnodes=1,tensor_model_parallel_size=1,max_model_len=8192,prompt_length=8192,response_length=4096,max_num_seqs=1,max_num_batched_tokens=8192,gpu_memory_utilization=.30,enforce_eager=True,enable_sleep_mode=False,free_cache_engine=False,enable_prefix_caching=False,load_format='auto',calculate_log_probs=True,seed=17)
         write_json(root/'native_server_config.json',asdict(config))
-        model_config=HFModelConfig(path=str(model),trust_remote_code=False,lora_rank=0)
+        model_config=HFModelConfig(path=str(model),trust_remote_code=False,lora_rank=lora_rank)
+        self.config=config;self.model_config=model_config
         server_name='officegym_vllm_'+uuid4().hex
         self.server=ray.remote(vLLMHttpServer).options(num_cpus=1,num_gpus=1,max_concurrency=16,name=server_name).remote(config=config,model_config=model_config,rollout_mode=RolloutMode.STANDALONE,workers=[],replica_rank=0,node_rank=0,gpus_per_node=1,nnodes=1,cuda_visible_devices='0')
         await asyncio.wait_for(self.server.launch_server.remote(),240)
