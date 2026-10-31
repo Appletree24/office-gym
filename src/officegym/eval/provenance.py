@@ -1,4 +1,5 @@
 """Run provenance without credential/environment-value capture."""
+from officegym.graders.versions import EVAL_GRADER_VERSION,REWARD_VERSION
 import hashlib
 import importlib.metadata
 import subprocess
@@ -30,4 +31,4 @@ def provenance(instance_dir,policy):
             'instance_artifact_sha256':artifacts,'packages':packages,'model_version':getattr(policy,'model_version',None),
             'tool_schema_sha256':hashlib.sha256(canonical({'input':tool_schemas(),'output':TOOL_RESULT_SCHEMA}).encode()).hexdigest(),
             'tool_counts':categories,'env_version':'env-v1','tool_schema_version':'tools-v1','harness_version':'harness-v1-development',
-            'reward_version':'reward-v1','eval_grader_version':'eval-v1-development'}
+            'reward_version':REWARD_VERSION,'eval_grader_version':EVAL_GRADER_VERSION}

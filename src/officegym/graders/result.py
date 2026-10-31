@@ -1,7 +1,9 @@
 """Independent constraint grader. Never trusts board or agent completion prose."""
+from officegym.graders.versions import EVAL_GRADER_VERSION,REWARD_VERSION
 import json
 import sqlite3
 from pathlib import Path
+from .replies import availability_replies
 
 
 def evaluate(world_path, spec, initial_path=None):
@@ -67,12 +69,7 @@ def evaluate(world_path, spec, initial_path=None):
             replies_ok = True
             if spec.get('collect_availability'):
                 for person in meeting_required:
-                    replies = db.execute("SELECT * FROM messages WHERE sender_id=? AND kind='reply' ORDER BY sent_at,id",(person,)).fetchall()
-                    valid_replies = []
-                    for reply in replies:
-                        facts = json.loads(reply['body']).get('facts',{})
-                        if any(left<=start and end<=right for left,right in facts.get('available_windows',[])):
-                            valid_replies.append(reply)
+                    valid_replies = availability_replies(db,spec['principal_id'],person,start,end)
                     if not valid_replies:
                         replies_ok = False
                     elif not any(invitation['meeting_id']==meeting['id'] and invitation['meeting_version']==meeting['version'] and invitation['sent_at']>=valid_replies[0]['sent_at'] for invitation in invitations):
@@ -220,6 +217,6 @@ def evaluate(world_path, spec, initial_path=None):
         full_success = not failures and not severe
         return {'outcome_ok':not failures,'hard_violations':sorted(set(severe)), 'soft_deviations':[], 'unexpected_mutations':unexpected, 'within_budget':'deadline_exceeded' not in failures, 'declared_done':meta.get('finished',False), 'full_success':full_success,'reward':-1.0 if severe else 1.0 if full_success else 0.0,
                 'failures':sorted(set(failures)),'severe_violations':sorted(set(severe)),
-                'reward_version':'reward-v1','eval_grader_version':'eval-v1-development'}
+                'reward_version':REWARD_VERSION,'eval_grader_version':EVAL_GRADER_VERSION}
     finally:
         db.close()

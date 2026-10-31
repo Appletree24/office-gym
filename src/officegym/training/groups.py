@@ -37,7 +37,7 @@ def collect_groups(sample_group, *, actor_version, target_groups, group_size=4, 
             if not row.trajectory_id or row.trajectory_id in seen:
                 raise ValueError('reused trajectory')
             if not math.isfinite(row.reward) or row.reward not in (-1,0,1):
-                raise ValueError('reward-v1 requires terminal 1/0/-1')
+                raise ValueError('terminal reward requires 1/0/-1')
             if type(row.generated_tokens) is not int or row.generated_tokens<0:
                 raise ValueError('invalid token usage')
             seen.add(row.trajectory_id)
