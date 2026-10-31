@@ -131,11 +131,12 @@ class PolicyIsolationTests(unittest.TestCase):
         thread.start()
         worker=None
         try:
-            policy=ChatPolicy('http://127.0.0.1:'+str(server.server_port)+'/v1/chat/completions','fixture-model','fixture-server')
+            policy=ChatPolicy('http://127.0.0.1:'+str(server.server_port)+'/v1/chat/completions','fixture-model','fixture-server',tool_choice='auto')
             worker=IsolatedPolicy(policy)
             self.assertEqual(worker.generate([],[],dict(wall_seconds=2,generated_tokens=10)).tool,'task.finish')
             self.assertEqual(len(observed),1)
             self.assertEqual(observed[0]['model'],'fixture-model')
+            self.assertEqual(observed[0]['tool_choice'],'auto')
         finally:
             if worker:
                 worker.close()

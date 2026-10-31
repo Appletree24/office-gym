@@ -190,7 +190,7 @@ class Harness:
                 trace.flush()
                 os.fsync(trace.fileno())
             if not self.restored:
-                log({'kind':'run_header','wall_clock':dict(monotonic_origin=started,identity=wall_clock_identity()),'harness_version':HARNESS_VERSION,'task_sha256':hashlib.sha256(canonical(self.task).encode()).hexdigest(),'budget':asdict(self.budget),'mode':'full' if self.journal else 'simple','model_version':getattr(self.policy,'model_version',None),'initial_messages':self.messages,'tool_schemas':tool_schemas()})
+                log({'kind':'run_header','wall_clock':dict(monotonic_origin=started,identity=wall_clock_identity()),'harness_version':HARNESS_VERSION,'task_sha256':hashlib.sha256(canonical(self.task).encode()).hexdigest(),'budget':asdict(self.budget),'mode':'full' if self.journal else 'simple','model_version':getattr(self.policy,'model_version',None),'tool_choice':getattr(self.policy,'tool_choice',None),'initial_messages':self.messages,'tool_schemas':tool_schemas()})
             while True:
                 remaining = dict(tool_calls=self.budget.tool_calls-calls, generated_tokens=self.budget.generated_tokens-generated,
                                  wall_seconds=self.budget.wall_seconds-(time.monotonic()-started))

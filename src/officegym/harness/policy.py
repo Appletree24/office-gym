@@ -52,9 +52,12 @@ def summary_prompt(messages):
 
 class ChatPolicy:
     policy_kind = 'inference_service'
-    def __init__(self,endpoint,model,model_version,*,api_key_env=None,max_output_tokens=1024,temperature=0,transport=None):
+    def __init__(self,endpoint,model,model_version,*,api_key_env=None,max_output_tokens=1024,temperature=0,transport=None,tool_choice='auto'):
         if not model or not model_version or type(max_output_tokens) is not int or max_output_tokens<1:
             raise ValueError('locked model identity and finite output cap required')
+        if tool_choice not in ('required','auto'):
+            raise ValueError('tool_choice must be required or auto')
+        self.tool_choice = tool_choice
         self.endpoint,self.model,self.model_version = endpoint,model,model_version
         self.api_key_env,self.max_output_tokens,self.temperature = api_key_env,max_output_tokens,temperature
         self.transport = transport or self._post
@@ -77,7 +80,7 @@ class ChatPolicy:
             raise ValueError('generation budget exhausted')
         payload = {'model':self.model,'messages':messages,'temperature':self.temperature,'max_tokens':limit,'stream':False}
         if tools is not None:
-            payload.update(tools=[{'type':'function','function':{'name':tool['name'],'description':tool['description'],'parameters':tool['inputSchema']}} for tool in tools],tool_choice='required',parallel_tool_calls=False)
+            payload.update(tools=[{'type':'function','function':{'name':tool['name'],'description':tool['description'],'parameters':tool['inputSchema']}} for tool in tools],tool_choice=self.tool_choice,parallel_tool_calls=False)
         response = self.transport(payload,remaining['wall_seconds'])
         usage = response.get('usage',{})
         if any(type(usage.get(key)) is not int or usage[key]<0 for key in ('prompt_tokens','completion_tokens')):

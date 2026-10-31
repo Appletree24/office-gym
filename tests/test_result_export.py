@@ -21,3 +21,11 @@ class ExportTests(unittest.TestCase):
         self.assertNotEqual(baseline,evaluation_budget_hash(budget,{**config,'max_output_tokens':512}))
         with self.assertRaisesRegex(ValueError,'budget differs'):
             evaluation_budget_hash({**budget,'tool_calls':100},config)
+
+    def test_decoding_choice_is_part_of_comparison_identity(self):
+        from officegym.eval.export import evaluation_budget_hash
+        config=dict(budget={'tool_calls':24},max_context_tokens=8192,max_output_tokens=256)
+        native=evaluation_budget_hash(config['budget'],config)
+        self.assertEqual(native,evaluation_budget_hash(config['budget'],dict(config,tool_choice='auto')))
+        self.assertNotEqual(native,evaluation_budget_hash(config['budget'],dict(config,tool_choice='required')))
+        with self.assertRaises(ValueError):evaluation_budget_hash(config['budget'],dict(config,tool_choice='none'))

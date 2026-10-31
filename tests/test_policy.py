@@ -94,3 +94,15 @@ class PolicyTests(unittest.TestCase):
         self.assertIsNone(turn.tool)
         self.assertEqual((turn.input_tokens,turn.output_tokens),(20,30))
         self.assertEqual(turn.raw,response)
+
+    def test_native_auto_choice_is_explicit_and_validated(self):
+        captured=[]
+        def transport(payload,timeout):
+            captured.append(payload)
+            return dict(choices=[dict(message=dict(content='plain output'))],usage=dict(prompt_tokens=10,completion_tokens=4))
+        policy=ChatPolicy('fixture','fixture','fixture',transport=transport,tool_choice='auto')
+        turn=policy.generate([],[],dict(generated_tokens=100,wall_seconds=5))
+        self.assertEqual(captured[0]['tool_choice'],'auto')
+        self.assertIsNone(turn.tool)
+        self.assertEqual(turn.output_tokens,4)
+        with self.assertRaises(ValueError):ChatPolicy('fixture','fixture','fixture',tool_choice='none')

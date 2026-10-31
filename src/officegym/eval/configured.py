@@ -25,6 +25,8 @@ def validate_config(config):
         raise ValueError('all finite budget fields must be explicit')
     if config.get('api_key_env') is not None and (not isinstance(config['api_key_env'],str) or not re.fullmatch('[A-Za-z_][A-Za-z0-9_]{0,127}',config['api_key_env'])):
         raise ValueError('credential environment variable name required')
+    if config.get('tool_choice','auto') not in ('required','auto'):
+        raise ValueError('tool_choice must be required or auto')
     budget = Budget(**config['budget'])
     context,output = config['max_context_tokens'],config['max_output_tokens']
     if type(context) is not int or type(output) is not int or not 0<output<context:
@@ -36,9 +38,10 @@ def validate_config(config):
 
 def evaluate_instance(instance,out,config_path):
     config = json.loads(Path(config_path).read_text())
+    config.setdefault('tool_choice','auto')
     budget = validate_config(config)
     tokenizer = PromptTokenizer.load(config['tokenizer_path'],config['tokenizer_revision'],template_kwargs=config.get('template_kwargs'))
-    policy = ChatPolicy(config['endpoint'],config['model'],config['model_version'],max_output_tokens=config['max_output_tokens'],temperature=config.get('temperature',0),api_key_env=config.get('api_key_env'))
+    policy = ChatPolicy(config['endpoint'],config['model'],config['model_version'],max_output_tokens=config['max_output_tokens'],temperature=config.get('temperature',0),api_key_env=config.get('api_key_env'),tool_choice=config.get('tool_choice','auto'))
     if config['mode']=='full':
         context = FullContext(tokenizer,config['max_context_tokens'],policy,trigger_tokens=config.get('compression_trigger_tokens',8192),reserved_output_tokens=config['max_output_tokens'],archive_path=Path(out)/'summaries.jsonl')
     else:

@@ -25,7 +25,7 @@ class IsolatedPolicy:
             raise RuntimeError('Linux root with chroot/setuid capabilities required; no unsafe fallback')
         self.policy = policy
         self.policy_kind = policy.policy_kind
-        for key in ('model_version','model','endpoint','temperature','max_output_tokens'):
+        for key in ('model_version','model','endpoint','temperature','max_output_tokens','tool_choice'):
             setattr(self,key,getattr(policy,key))
         self.process = None
         self.buffer = b''
@@ -38,7 +38,7 @@ class IsolatedPolicy:
             os.set_blocking(self.process.stdin.fileno(),False)
             os.set_blocking(self.process.stdout.fileno(),False)
             deadline = time.monotonic()+startup_seconds
-            self._send(dict(method='initialize',root=str(self.root),protected_paths=[str(Path(p).absolute()) for p in protected_paths],model=self.model,model_version=self.model_version,max_output_tokens=self.max_output_tokens,temperature=self.temperature),deadline)
+            self._send(dict(method='initialize',root=str(self.root),protected_paths=[str(Path(p).absolute()) for p in protected_paths],model=self.model,model_version=self.model_version,max_output_tokens=self.max_output_tokens,temperature=self.temperature,tool_choice=self.tool_choice),deadline)
             response = self._receive(deadline)
             if response.get('kind')!='ready':
                 raise RuntimeError('policy isolation setup failed: '+response.get('error_type','invalid handshake'))

@@ -124,7 +124,7 @@ def run_episode(instance_dir,out,policy,*,mode='full',budget=None,context_manage
         grade['full_success'] = False
         grade['reward'] = -1.0 if grade['hard_violations'] else 0.0
     result = dict(instance_id=task['instance_id'],split=task['split'],template_id=task['template_id'],mode=mode,
-                  model_version=getattr(policy,'model_version',None),policy_kind=getattr(policy,'policy_kind','software_fixture'),termination=termination,grade=grade,operation_audit=audit,
+                  model_version=getattr(policy,'model_version',None),tool_choice=getattr(policy,'tool_choice',None),policy_kind=getattr(policy,'policy_kind','software_fixture'),termination=termination,grade=grade,operation_audit=audit,
                   policy_isolation=isolation_evidence,infrastructure_error=error,runner_wall_seconds=time.monotonic()-started,
                   scope='single_episode_not_complete_evaluation_matrix',versions=versions)
     write_json(out/'result.json',result)

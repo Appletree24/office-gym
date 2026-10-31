@@ -70,7 +70,7 @@ def worker(fetch_root,out):
                 except (OSError,ValueError,KeyError):time.sleep(.5)
             write_json(root/'models.json',models)
             tokenizer=PromptTokenizer.load(str(model_path),plan['revision'])
-            policy=ChatPolicy(endpoint+'/v1/chat/completions',name,plan['revision'],api_key_env=KEY_ENV,max_output_tokens=128)
+            policy=ChatPolicy(endpoint+'/v1/chat/completions',name,plan['revision'],api_key_env=KEY_ENV,max_output_tokens=128,tool_choice='auto')
             messages=[dict(role='system',content='Use provided tools.'),dict(role='user',content='Read the board with board.read and empty arguments.')]
             schemas=[dict(type='function',function=dict(name=t['name'],description=t['description'],parameters=t['inputSchema'])) for t in tool_schemas()]
             native_ids=tokenizer.token_ids(messages,tool_schemas())
@@ -90,11 +90,13 @@ def worker(fetch_root,out):
             manifest=generate(root/'tasks',templates=['T01','T02','T03'],count_per_template=1)
             records=[]
             for entry in manifest['instances']:
-                config=dict(endpoint=endpoint+'/v1/chat/completions',model=name,model_version=plan['revision'],api_key_env=KEY_ENV,tokenizer_path=str(model_path),tokenizer_revision=plan['revision'],mode='full',budget=dict(tool_calls=24,generated_tokens=4096,wall_seconds=120,parse_retries=2),max_context_tokens=8192,max_output_tokens=256,compression_trigger_tokens=7168,temperature=0)
+                config=dict(tool_choice='auto',endpoint=endpoint+'/v1/chat/completions',model=name,model_version=plan['revision'],api_key_env=KEY_ENV,tokenizer_path=str(model_path),tokenizer_revision=plan['revision'],mode='full',budget=dict(tool_calls=24,generated_tokens=4096,wall_seconds=120,parse_retries=2),max_context_tokens=8192,max_output_tokens=256,compression_trigger_tokens=7168,temperature=0)
                 config_path=root/(entry['instance_id']+'_config.json');write_json(config_path,config)
                 result=evaluate_instance(root/'tasks'/entry['path'],root/'runs'/entry['instance_id'],config_path)
                 records.append(dict(instance_id=entry['instance_id'],termination=result['termination'],grade=result['grade'],infrastructure_error=result['infrastructure_error']))
                 write_json(root/'episodes.json',records)
+            from .protocol_audit import run as audit_protocol
+            audit_protocol(root/'runs',root/'turn_protocol_audit.json')
             write_json(root/'summary.json',dict(kind='real_base_model_feasibility_not_frozen_evaluation',model_revision=plan['revision'],episodes=len(records),successful=sum(r['grade']['full_success'] for r in records),infrastructure_errors=sum(bool(r['infrastructure_error']) or r['termination']['state']=='INFRA_ERROR' for r in records),records=records,optimizer_updates=0))
     finally:
         if server and server.poll() is None:

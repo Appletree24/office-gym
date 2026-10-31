@@ -1,1 +1,1 @@
-HARNESS_VERSION = 'harness-v8-serial-tools-native-history'
+HARNESS_VERSION = 'harness-v9-native-auto-tool-choice'

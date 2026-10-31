@@ -91,4 +91,6 @@ PYTHONPATH=src .venv-serve/bin/python -m officegym.eval.model_probe --fetch-root
 
 下载上限为 10 GiB／1,800 秒，保留失败记录与分片，校验 LFS SHA256／Git blob SHA1 后才接受；结果中的 result.json 是协调器资源验收，verified.json 仅表示文件校验。模型探针使用原始模板、全部工具 schema、最多 128 个生成 token、120 秒和 16 GiB PyTorch allocator 上限。当前真实结果为 2,415 输入／16 输出 token，正确生成 board.read({})；业务工具执行、完整任务成功率和训练效果仍须另行验证。requirements-serve.lock 是实际探针栈，不替代后续 vLLM／verl／TRL 版本冻结。
 
-本机真实服务探针：`PYTHONPATH=src .venv-serve/bin/python -m officegym.eval.vllm_probe --fetch-root artifacts/qwen3_4b_base_cdbee75_v1 --out artifacts/NEW_VLLM_PROBE`。服务环境锁见 requirements-vllm.lock；命令要求 GPU 空闲，以有限时间／显存和临时环境密钥启动 loopback 服务。固定 vLLM 0.11 的 serial_vllm 适配层在采样前将明确的单工具请求限制为一个调用。v4 已验证 72 次真实调用的 token 计数和单工具协议，但 T01–T03 均在 24 次调用后预算停止，完整成功 0/3；这属于协议可行性记录，不能作为正式基线。当前 Harness 为 v8，历史准备数据需要重新生成。
+本机真实服务探针：`PYTHONPATH=src .venv-serve/bin/python -m officegym.eval.vllm_probe --fetch-root artifacts/qwen3_4b_base_cdbee75_v1 --out artifacts/NEW_VLLM_PROBE`。服务环境锁见 requirements-vllm.lock；命令要求 GPU 空闲，以有限时间／显存和临时环境密钥启动 loopback 服务。固定 vLLM 0.11 的 serial_vllm 适配层在采样前将明确的单工具请求限制为一个调用。v4 已验证 72 次真实调用的 token 计数和单工具协议，但 T01–T03 均在 24 次调用后预算停止，完整成功 0/3；这属于协议可行性记录，不能作为正式基线。当前 Harness 为 v9，历史准备数据需要重新生成。
+
+ChatPolicy 默认 `tool_choice=auto`，使用模型原生工具格式；配置可显式选择 `required` 作诊断，选择会记录在结果与 provenance 中。原生对照探针 artifacts/vllm_native_auto_probe_v1 已消除此前的反复读板模式，T01–T03 执行 10/10/8 个工具后声明完成，独立评分仍为 0/3。30 次响应的 token 计数均一致；其中两次纯文本响应经有限重试恢复。离线审计命令：`PYTHONPATH=src .venv/bin/python -m officegym.eval.protocol_audit --runs RUN_DIRECTORY --out NEW_AUDIT.json`；严格单工具审计不会把这种可恢复的纯文本响应算成通过。

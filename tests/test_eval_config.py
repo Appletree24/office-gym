@@ -8,7 +8,7 @@ class EvalConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             config = dict(endpoint='http://127.0.0.1:8000/v1/chat/completions',model='student',model_version='revision',tokenizer_path=directory,tokenizer_revision='revision',mode='simple',budget=dict(tool_calls=20,generated_tokens=1000,wall_seconds=60,parse_retries=2),max_context_tokens=8192,max_output_tokens=512)
             self.assertEqual(validate_config(config).tool_calls,20)
-            for changes in ({'endpoint':'https://remote.example/v1/chat/completions'},{'model_version':'SET_MODEL'},{'budget':{'tool_calls':20}},{'max_output_tokens':8192}):
+            for changes in ({'endpoint':'https://remote.example/v1/chat/completions'},{'model_version':'SET_MODEL'},{'budget':{'tool_calls':20}},{'max_output_tokens':8192},{'tool_choice':'none'}):
                 with self.assertRaises(ValueError):
                     validate_config(dict(config,**changes))
 
@@ -26,6 +26,7 @@ class EvalConfigTests(unittest.TestCase):
             with patch.dict(os.environ,{'OFFICEGYM_FIXTURE_KEY':'secret-fixture-value'}),patch('officegym.eval.configured.PromptTokenizer.load',return_value=tokenizer),patch('officegym.eval.configured.ChatPolicy') as policy,patch('officegym.eval.configured.run_episode',return_value={'fixture':True}):
                 self.assertEqual(evaluate_instance(root,root/'out',path),{'fixture':True})
                 self.assertEqual(policy.call_args.kwargs['api_key_env'],'OFFICEGYM_FIXTURE_KEY')
+                self.assertEqual(policy.call_args.kwargs['tool_choice'],'auto')
                 self.assertNotIn('secret-fixture-value',path.read_text())
             for invalid in ('literal-api-key-with-dashes',{},''):
                 with self.subTest(invalid=invalid),self.assertRaisesRegex(ValueError,'environment variable'):

@@ -10,7 +10,9 @@ from pathlib import Path
 def evaluation_budget_hash(budget,config):
     if config['budget']!=budget:
         raise ValueError('recorded episode budget differs from resolved evaluation config')
-    identity = dict(episode=budget,max_context_tokens=config['max_context_tokens'],max_output_tokens=config['max_output_tokens'])
+    choice=config.get('tool_choice','auto')
+    if choice not in ('auto','required'):raise ValueError('invalid recorded tool choice')
+    identity = dict(tool_choice=choice,episode=budget,max_context_tokens=config['max_context_tokens'],max_output_tokens=config['max_output_tokens'])
     return hashlib.sha256(canonical(identity).encode()).hexdigest()
 
 

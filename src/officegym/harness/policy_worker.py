@@ -96,7 +96,7 @@ def main():
         init=read()
         if init['method']!='initialize':
             raise ValueError('initialization required')
-        policy=ChatPolicy('broker://trusted-parent',init['model'],init['model_version'],max_output_tokens=init['max_output_tokens'],temperature=init['temperature'],transport=bridge)
+        policy=ChatPolicy('broker://trusted-parent',init['model'],init['model_version'],max_output_tokens=init['max_output_tokens'],temperature=init['temperature'],transport=bridge,tool_choice=init['tool_choice'])
         evidence=restrict(init['root'],init['protected_paths'])
         write(dict(kind='ready',evidence=evidence))
         while True:
