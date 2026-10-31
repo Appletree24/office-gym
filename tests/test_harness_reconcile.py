@@ -18,7 +18,7 @@ class HarnessReconcileTests(unittest.TestCase):
                 dispatcher = Dispatcher(world)
                 class Policy:
                     def generate(self,*args):
-                        return AssistantTurn('board.patch',{'expected_version':1,'patch':{'goal':'schedule'}},5,3)
+                        return AssistantTurn('board.patch',{'expected_version':1,'patch':{'goal':'schedule'}},5,3,content='I will update the board.')
                 def uncertain(name,args,operation):
                     if committed:
                         dispatcher.call(name,args,operation)
@@ -33,6 +33,7 @@ class HarnessReconcileTests(unittest.TestCase):
                 self.assertEqual(len(restored.pending_actions),1)
                 restored.reconcile_pending()
                 self.assertEqual(restored.pending_actions,{})
+                self.assertEqual(restored.messages[-2]['content'],'I will update the board.')
                 self.assertEqual(world.db.execute('SELECT version FROM board').fetchone()[0],2)
                 self.assertEqual(world.db.execute('SELECT count(*) FROM operations').fetchone()[0],1)
                 self.assertEqual(restored.prior_usage['tool_calls'],2 if committed else 3)

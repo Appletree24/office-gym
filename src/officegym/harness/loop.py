@@ -9,6 +9,7 @@ import uuid
 from dataclasses import dataclass
 from officegym.env.world import canonical
 from officegym.tools.schema import WRITES, tool_schemas
+from .versions import HARNESS_VERSION
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,7 @@ class AssistantTurn:
     input_tokens: int
     output_tokens: int
     raw: object = None
+    content: str | None = None
 
 
 def initial_messages(task,full=False):
@@ -63,6 +65,8 @@ class Harness:
         rows = [json.loads(line) for line in Path(self.trace_path).read_text().splitlines() if line.strip()]
         if not rows or rows[0].get('kind')!='run_header' or rows[0]['task_sha256']!=hashlib.sha256(canonical(self.task).encode()).hexdigest() or rows[0]['budget']!=asdict(self.budget):
             raise ValueError('trace task or budget does not match resumed run')
+        if rows[0].get('harness_version')!=HARNESS_VERSION:
+            raise ValueError('cannot resume a different harness version')
         if rows[0].get('model_version') != getattr(self.policy,'model_version',None):
             raise ValueError('cannot change model version while resuming')
         if rows[0]['mode'] != ('full' if self.journal else 'simple'):
@@ -135,6 +139,8 @@ class Harness:
                     if result.get('error') and result['error']['code']=='IDEMPOTENCY_CONFLICT':
                         raise ValueError('recovery request hash conflict; intent retained')
                 pair = [{'role':'assistant','tool_call':{'name':action['tool'],'arguments':action['arguments'],'id':action_id}}, {'role':'tool','tool_call_id':action_id,'content':canonical(result)}]
+                if action.get('content') is not None:
+                    pair[0]['content'] = action['content']
                 append({'kind':'interaction','action_id':action_id,'messages':pair,'operation_id':action['operation_id'],'reconciled':True})
                 self.messages.extend(pair)
                 status = self.journal.db.execute('SELECT status FROM write_intents WHERE operation_id=?',(action['operation_id'],)).fetchone()
@@ -158,7 +164,7 @@ class Harness:
                 trace.flush()
                 os.fsync(trace.fileno())
             if not self.restored:
-                log({'kind':'run_header','task_sha256':hashlib.sha256(canonical(self.task).encode()).hexdigest(),'budget':asdict(self.budget),'mode':'full' if self.journal else 'simple','model_version':getattr(self.policy,'model_version',None),'initial_messages':self.messages,'tool_schemas':tool_schemas()})
+                log({'kind':'run_header','harness_version':HARNESS_VERSION,'task_sha256':hashlib.sha256(canonical(self.task).encode()).hexdigest(),'budget':asdict(self.budget),'mode':'full' if self.journal else 'simple','model_version':getattr(self.policy,'model_version',None),'initial_messages':self.messages,'tool_schemas':tool_schemas()})
             while True:
                 remaining = dict(tool_calls=self.budget.tool_calls-calls, generated_tokens=self.budget.generated_tokens-generated,
                                  wall_seconds=self.budget.wall_seconds-self.prior_usage['wall_seconds']-(time.monotonic()-started))
@@ -193,7 +199,7 @@ class Harness:
                     raise ValueError('policy must return AssistantTurn with measured token usage')
                 generated += turn.output_tokens
                 inputs += turn.input_tokens
-                log({'kind':'model_response','tool':turn.tool,'arguments':turn.arguments,'raw':turn.raw,'input_tokens':turn.input_tokens,'output_tokens':turn.output_tokens})
+                log({'kind':'model_response','tool':turn.tool,'arguments':turn.arguments,'raw':turn.raw,'content':turn.content,'input_tokens':turn.input_tokens,'output_tokens':turn.output_tokens})
                 if generated > self.budget.generated_tokens or self.prior_usage['wall_seconds']+time.monotonic()-started >= self.budget.wall_seconds:
                     self.state = 'BUDGET_STOP'
                     break
@@ -209,7 +215,7 @@ class Harness:
                 failures = 0
                 operation = self.journal.prepare(turn.tool,turn.arguments) if self.journal and turn.tool in WRITES else uuid.uuid4().hex if turn.tool in WRITES else None
                 action_id = uuid.uuid4().hex
-                log({'kind':'action_start','action_id':action_id,'tool':turn.tool,'arguments':turn.arguments,'operation_id':operation})
+                log({'kind':'action_start','action_id':action_id,'tool':turn.tool,'arguments':turn.arguments,'operation_id':operation,'content':turn.content})
                 calls += 1
                 try:
                     result = self.call(turn.tool,turn.arguments,operation)
@@ -221,6 +227,8 @@ class Harness:
                     self.journal.acknowledge(operation,result)
                 pair = [{'role':'assistant','tool_call':{'name':turn.tool,'arguments':turn.arguments,'id':str(calls)}},
                         {'role':'tool','tool_call_id':str(calls),'content':canonical(result)}]
+                if turn.content is not None:
+                    pair[0]['content'] = turn.content
                 self.messages.extend(pair)
                 log({'kind':'interaction','messages':pair,'operation_id':operation,'action_id':action_id})
                 if turn.tool == 'task.finish' and result['ok']:

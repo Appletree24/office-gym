@@ -15,7 +15,7 @@ def render_messages(messages):
     for message in messages:
         if 'tool_call' in message:
             call = message['tool_call']
-            rendered.append({'role':'assistant','content':None,'tool_calls':[{'id':call['id'],'type':'function','function':{'name':call['name'],'arguments':canonical(call['arguments'])}}]})
+            rendered.append({'role':'assistant','content':message.get('content'),'tool_calls':[{'id':call['id'],'type':'function','function':{'name':call['name'],'arguments':canonical(call['arguments'])}}]})
         elif message['role']=='tool':
             rendered.append({'role':'tool','tool_call_id':message['tool_call_id'],'content':message['content']})
         else:
@@ -77,7 +77,8 @@ class ChatPolicy:
                 args = json.loads(function.get('arguments',''))
             except (ValueError,TypeError):
                 pass
-        return AssistantTurn(name,args,usage['prompt_tokens'],usage['completion_tokens'],raw=response)
+        content = response_message(response).get('content')
+        return AssistantTurn(name,args,usage['prompt_tokens'],usage['completion_tokens'],raw=response,content=content if isinstance(content,str) else None)
 
     def summarize(self,messages,remaining_budget):
         from .context import FullContext

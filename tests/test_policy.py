@@ -53,3 +53,11 @@ class PolicyTests(unittest.TestCase):
             model_rows=[row for row in rows if row['kind']=='model_response']
             self.assertEqual(len(model_rows),3)
             self.assertTrue(all(row['raw']==response for row in model_rows))
+
+    def test_assistant_text_survives_tool_message_rendering(self):
+        response={'choices':[{'message':{'content':'I will finish now.','tool_calls':[{'function':{'name':'task.finish','arguments':'{"summary":"done"}'}}]}}],'usage':{'prompt_tokens':9,'completion_tokens':7}}
+        policy=ChatPolicy('fixture','student','fixture',transport=lambda *args:response)
+        turn=policy.generate([],[],{'generated_tokens':20,'wall_seconds':10})
+        self.assertEqual(turn.content,'I will finish now.')
+        message={'role':'assistant','content':turn.content,'tool_call':{'id':'1','name':turn.tool,'arguments':turn.arguments}}
+        self.assertEqual(render_messages([message])[0]['content'],'I will finish now.')
