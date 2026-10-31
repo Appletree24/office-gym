@@ -68,3 +68,13 @@ HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PYTHONPATH=src .venv-tokenizer/bin/pytho
 参考解版本 reference-v3-batched-availability 在单个协调线程向全部参与人询问，逐人核对 provided 回复并增量读取分页；审批先利用请求返回的 pending 状态再等待。v10 的任务输入与 v9 完全一致。当前仍有 40 条训练参考解超过 8,192 token，另有 40 条超过 24 次工具调用上限，需继续校准。
 
 参考轨迹的真实 mask 检查可复跑：`HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PYTHONPATH=src .venv-tokenizer/bin/python -m officegym.training.reference_tokenizer_probe --manifest artifacts/dataset_development_v10/manifest.json --tokenizer artifacts/qwen-tokenizer --revision cdbee75f17c01a7cc42f958dc650907174af0554 --out artifacts/NEW_REFERENCE_MASK_PROBE`。它每个模板／深度／扰动组合检查一条参考轨迹，并保存原始 token ID 哈希及 mask 来源；输出不作为真实教师数据或训练结果。
+
+
+CUDA 基础运行时已在 A800 上验证 PyTorch 2.8.0+cu128／CUDA 12.8。独立环境安装使用固定哈希 lock 和有界安装器（需要全新环境／输出路径）：
+
+```bash
+.venv/bin/python scripts/bootstrap_serve_runtime.py --target .venv-serve --out artifacts/NEW_SERVE_BOOTSTRAP
+PYTHONPATH=src .venv-serve/bin/python -m officegym.eval.cuda_probe --out artifacts/NEW_CUDA_PROBE
+```
+
+安装器总时限 600 秒，wheel／环境／临时目录上限分别为 6／12／6 GiB；[版本来源为官方 PyTorch 安装说明](https://pytorch.org/get-started/previous-versions/)。GPU 探针要求设备空闲，子进程限时 60 秒，检查 FP32／BF16 矩阵乘法误差及有限、非零反向梯度，限制 PyTorch allocator 分配至 256 MiB。该指标不包含驱动上下文，也不证明模型显存可行性。探针输出保留 model_compatibility_pending；真实模型权重、推理、服务和优化器 smoke 仍须后续验证。当前 .venv-serve 只安装最小 Torch 运行时，尚未具备完整模型服务依赖。

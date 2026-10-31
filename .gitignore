@@ -4,3 +4,4 @@ artifacts/
 *.egg-info/
 build/
 .venv-tokenizer/
+.venv-serve/
