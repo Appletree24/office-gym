@@ -13,3 +13,5 @@
 尚未验证：OfficeGym 业务工具、MCP server、真实任务生成器、参考解、完整 grader、Harness、GPU 推理、SFT、verl GRPO、模型表现和成本。它们是按手册实施的后续工作。
 
 配置中的 API 费用和 GPU 时长预算尚未填写；这不代表允许无限运行。依赖组合需在服务器完成 smoke test 后锁定。
+
+2026-11-01 native actor/base-reference diagnostic: artifacts/native_fsdp_logprob_probe_v2/report.json and independent_audit.json pass. Real native FSDP2 engine, two archived rows/one unique greedy history, initial/restored actor-reference equality, adapter perturbation isolation and independently indexed 453-position causal check all pass. Observed wall 31.83s, GPU peak 11,886MiB, no optimizer/generation/teacher/API work. This validates initial-base logprob plumbing; full KL, admitted-SFT reference, physical rollout synchronization and formal GRPO remain unverified. The historical v1 label sampled_kl_mean must be read as recorded-action logratio. All 269 stdlib tests pass.
