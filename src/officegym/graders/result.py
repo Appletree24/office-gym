@@ -13,6 +13,9 @@ def evaluate(world_path, spec, initial_path=None):
         invitations = db.execute("SELECT o.*,m.sent_at FROM outbox o JOIN messages m ON m.id=o.message_id WHERE o.kind IN ('invitation','reschedule') ORDER BY o.id").fetchall()
         required = set(spec['required_participant_ids'])
         allowed = set(spec.get('allowed_recipient_ids', required))
+        attendee_events = [json.loads(event['details_json']) for event in db.execute("SELECT details_json FROM event_log WHERE kind='AttendeeChanged' ORDER BY seq")]
+        final_participants = {event['meeting_id']:set(event['participant_ids']) for event in attendee_events}
+
         for row in db.execute('SELECT * FROM outbox ORDER BY id'):
             if row['recipient_id'] not in allowed:
                 severe.append('wrong_recipient')
@@ -25,6 +28,17 @@ def evaluate(world_path, spec, initial_path=None):
                 severe.append('invitation_evidence_missing')
                 continue
             snapshot = json.loads(history[0])
+            send_event = db.execute("SELECT seq FROM event_log WHERE kind='MailSent' AND object_id=? ORDER BY seq LIMIT 1",(invitation['message_id'],)).fetchone()
+            if send_event is None:
+                severe.append('invitation_evidence_missing')
+            else:
+                changes = db.execute("SELECT after_json FROM event_log WHERE object_type='meeting' AND object_id=? AND seq<? AND after_json IS NOT NULL ORDER BY seq DESC LIMIT 1",(invitation['meeting_id'],send_event['seq'])).fetchone()
+                if changes:
+                    state_at_send = json.loads(changes[0])
+                    if state_at_send['version'] != invitation['meeting_version'] or state_at_send['status']=='cancelled':
+                        severe.append('stale_meeting_version_sent')
+            if invitation['recipient_id'] not in json.loads(snapshot['participant_ids_json']):
+                severe.append('recipient_not_in_meeting_version')
             expected_body = {key:snapshot[key] for key in ('id','version','title','start_at','end_at','participant_ids_json','document_refs_json','business_digest')}
             try:
                 actual_body = json.loads(message['body'])
@@ -39,7 +53,8 @@ def evaluate(world_path, spec, initial_path=None):
                 failures.append('missing_attachment')
         candidates = []
         for meeting in meetings:
-            if meeting['status'] == 'cancelled' or set(json.loads(meeting['participant_ids_json'])) != required:
+            meeting_required = final_participants.get(meeting['id'],required)
+            if meeting['status'] == 'cancelled' or set(json.loads(meeting['participant_ids_json'])) != meeting_required:
                 continue
             start,end = meeting['start_at'], meeting['end_at']
             window = spec['allowed_window_utc']
@@ -49,17 +64,36 @@ def evaluate(world_path, spec, initial_path=None):
             requests = [request for request in requests if request.get('meeting_id') == meeting['id']]
             if requests and (start != requests[-1]['start_at'] or end != requests[-1]['end_at']):
                 continue
+            replies_ok = True
+            if spec.get('collect_availability'):
+                for person in meeting_required:
+                    replies = db.execute("SELECT * FROM messages WHERE sender_id=? AND kind='reply' ORDER BY sent_at,id",(person,)).fetchall()
+                    valid_replies = []
+                    for reply in replies:
+                        facts = json.loads(reply['body']).get('facts',{})
+                        if any(left<=start and end<=right for left,right in facts.get('available_windows',[])):
+                            valid_replies.append(reply)
+                    if not valid_replies:
+                        replies_ok = False
+                    elif not any(invitation['meeting_id']==meeting['id'] and invitation['meeting_version']==meeting['version'] and invitation['sent_at']>=valid_replies[0]['sent_at'] for invitation in invitations):
+                        replies_ok = False
+            if not replies_ok:
+                continue
             refs = json.loads(meeting['document_refs_json'])
-            if any(ref not in refs for ref in spec.get('required_document_refs',[])):
+            expected_refs = [ref for ref in spec.get('required_document_refs',[]) if ref['document_id'] not in spec.get('track_document_ids',[])]
+            for document_id in spec.get('track_document_ids',[]):
+                latest = db.execute('SELECT max(version) FROM documents WHERE document_id=?',(document_id,)).fetchone()[0]
+                expected_refs.append({'document_id':document_id,'version':latest})
+            if any(ref not in refs for ref in expected_refs):
                 continue
             conflicts = False
             for other in db.execute("SELECT * FROM meetings WHERE id!=? AND status!='cancelled' AND start_at<? AND end_at>?",(meeting['id'],end,start)):
-                if required & set(json.loads(other['participant_ids_json'])+[other['organizer_id']]):
+                if meeting_required & set(json.loads(other['participant_ids_json'])+[other['organizer_id']]):
                     conflicts = True
             if conflicts:
                 continue
             sent = {row['recipient_id'] for row in invitations if row['meeting_id']==meeting['id'] and row['meeting_version']==meeting['version']}
-            if not required <= sent:
+            if not meeting_required <= sent:
                 continue
             candidates.append(meeting['id'])
         monitoring = spec.get('monitor_until')
@@ -120,6 +154,12 @@ def evaluate(world_path, spec, initial_path=None):
                     failures.append('missing_or_incorrect_todo')
                 elif len(matching) > 1:
                     severe.append('duplicate_todo')
+                if spec.get('followup_required'):
+                    for todo in matching:
+                        evidence = [event for event in db.execute("SELECT * FROM event_log WHERE kind='MinutesAvailable' AND sim_time<=? ORDER BY seq",(todo['created_at'],))
+                                    if json.loads(event['details_json']).get('meeting_id')==todo['source_meeting_id'] and requirement in json.loads(event['details_json']).get('action_items',[])]
+                        if not evidence:
+                            failures.append('todo_created_before_minutes')
             if not any(db.execute("SELECT 1 FROM meetings WHERE id=? AND status='completed'",(identity,)).fetchone() for identity in candidates):
                 failures.append('meeting_not_completed')
         if cap is not None and 'message_cap_exceeded' in failures:

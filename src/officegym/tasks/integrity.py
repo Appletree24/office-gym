@@ -1,5 +1,7 @@
 """Dataset integrity primitives. Seeds and split labels are not task identity."""
 import hashlib
+import json
+import copy
 from officegym.env.world import canonical
 
 
@@ -8,7 +10,20 @@ def digest(value):
 
 
 def fingerprints(target, initial_world, event_rules, env_version, *, identity_map=None):
-    payload = dict(target=target,initial_world=initial_world,event_rules=event_rules,env_version=env_version)
+    world = copy.deepcopy(initial_world)
+    # Only explicit bookkeeping fields are omitted; semantic event ordering stays.
+    if isinstance(world,dict) and isinstance(world.get('meta'),list):
+        excluded = {'episode_id','instance_id','split','seed','created_at','generated_at','tool_calls','finished','public_task'}
+        world['meta'] = [row for row in world['meta'] if row['key'] not in excluded]
+        # Decode JSON columns so family normalization reaches IDs inside ACLs,
+        # participants, event payloads and structured state rather than raw text.
+    def decode_columns(value):
+        if isinstance(value,list):
+            return [decode_columns(item) for item in value]
+        if isinstance(value,dict):
+            return {key:decode_columns(json.loads(item) if key.endswith('_json') and isinstance(item,str) else item) for key,item in value.items()}
+        return value
+    payload = dict(target=target,initial_world=decode_columns(world),event_rules=event_rules,env_version=env_version)
     # The caller supplies semantic inputs, never run bookkeeping or seed metadata.
     exact = digest(payload)
     mapping = identity_map or {}

@@ -21,3 +21,12 @@ class IntegrityTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             check_holdout(['attendee_changed','document_updated'],[['attendee_changed','document_updated']])
         check_holdout(['document_updated','attendee_changed'],[['attendee_changed','document_updated']])
+
+    def test_bookkeeping_excluded_and_json_identity_normalized(self):
+        world_a = {'meta':[{'key':'split','value_json':'"train"'},{'key':'sim_time','value_json':'100'}], 'meetings':[{'participant_ids_json':'["alice"]'}]}
+        world_b = {'meta':[{'key':'split','value_json':'"id_test"'},{'key':'sim_time','value_json':'100'}], 'meetings':[{'participant_ids_json':'["bob"]'}]}
+        a = fingerprints({},world_a,[],'v1',identity_map={'alice':'person_1'})
+        b = fingerprints({},world_b,[],'v1',identity_map={'bob':'person_1'})
+        self.assertEqual(a['family_fingerprint'],b['family_fingerprint'])
+        world_a['meta'][0]['value_json'] = '"dev"'
+        self.assertEqual(a['exact_fingerprint'],fingerprints({},world_a,[],'v1')['exact_fingerprint'])

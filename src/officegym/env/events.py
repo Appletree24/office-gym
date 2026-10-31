@@ -24,6 +24,14 @@ def process_due(client):
             break
         pre = json.loads(row['preconditions_json'])
         payload = json.loads(row['payload_json'])
+        selector = payload.pop('meeting_selector',None)
+        if selector is not None:
+            selected = db.execute("SELECT id FROM meetings WHERE organizer_id=? AND title=? AND status!='cancelled' ORDER BY created_at,id",(selector['organizer_id'],selector['title'])).fetchall()
+            if len(selected)!=1:
+                # No unique public proposal exists at this trigger; no hidden answer.
+                db.execute("UPDATE scheduled_events SET status='cancelled' WHERE id=?",(row['id'],))
+                continue
+            payload['meeting_id'] = selected[0]['id']
         valid = True
         if 'meeting_id' in pre:
             meeting = db.execute('SELECT * FROM meetings WHERE id=?', (pre['meeting_id'],)).fetchone()
@@ -33,6 +41,26 @@ def process_due(client):
             continue
         kind = row['kind']
         before, after, object_type, object_id = None, None, None, None
+        if kind == 'AttendeeChanged':
+            meeting = db.execute('SELECT * FROM meetings WHERE id=?',(payload['meeting_id'],)).fetchone()
+            if not meeting or meeting['status'] in ('cancelled','completed'):
+                db.execute("UPDATE scheduled_events SET status='cancelled' WHERE id=?",(row['id'],))
+                continue
+            participants = payload['participant_ids']
+            if not isinstance(participants,list) or not participants or any(not isinstance(p,str) for p in participants) or len(set(participants))!=len(participants):
+                raise ValueError('invalid trusted attendee list')
+            if any(not db.execute('SELECT 1 FROM people WHERE id=?',(p,)).fetchone() for p in participants):
+                raise ValueError('unknown trusted attendee')
+            before = dict(meeting)
+            after = dict(meeting)
+            after.update(participant_ids_json=canonical(participants),version=meeting['version']+1,status='draft',updated_at=row['due_at'])
+            after['business_digest'] = hashlib.sha256(canonical({key:after[key] for key in ('title','participant_ids_json','start_at','end_at','document_refs_json')}).encode()).hexdigest()
+            db.execute('UPDATE meetings SET participant_ids_json=?,version=?,status=?,updated_at=?,business_digest=? WHERE id=?',
+                (after['participant_ids_json'],after['version'],after['status'],after['updated_at'],after['business_digest'],meeting['id']))
+            db.execute('INSERT INTO meeting_history VALUES (?,?,?)',(meeting['id'],after['version'],canonical(after)))
+            db.execute("UPDATE approvals SET status='invalidated' WHERE meeting_id=? AND status IN ('pending','granted')",(meeting['id'],))
+            object_type,object_id = 'meeting',meeting['id']
+            payload = {'meeting_id':meeting['id'],'meeting_version':after['version'],'participant_ids':participants}
         if kind == 'DocumentVersionPublished':
             document = db.execute('SELECT * FROM documents WHERE document_id=? ORDER BY version DESC LIMIT 1', (payload['document_id'],)).fetchone()
             if not document or document['version'] != payload['expected_version']:
@@ -99,7 +127,7 @@ def process_due(client):
             kind = 'ApprovalGranted' if accepted else 'ApprovalRejected'
             payload = {'approval_id':approval['id'], 'status':status}
         # Notification events carry public facts. State-changing handlers are explicit.
-        if row['kind'] not in ('DocumentVersionPublished', 'ReplyArrived', 'MeetingEnded', 'ApprovalDecision', 'Notification', 'MeetingRescheduleRequested', 'MinutesAvailable'):
+        if row['kind'] not in ('AttendeeChanged', 'DocumentVersionPublished', 'ReplyArrived', 'MeetingEnded', 'ApprovalDecision', 'Notification', 'MeetingRescheduleRequested', 'MinutesAvailable'):
             raise ValueError('Unsupported scheduled event kind: ' + row['kind'])
         seq = db.execute('SELECT coalesce(max(seq),0)+1 FROM event_log').fetchone()[0]
         db.execute('INSERT INTO event_log (event_id,sim_time,cause_event_id,kind,details_json,visibility_json,actor_id,object_type,object_id,before_json,after_json) VALUES (?,?,?,?,?,?,?,?,?,?,?)',

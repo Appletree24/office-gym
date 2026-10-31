@@ -19,7 +19,28 @@ def main():
     graders.add_argument('--out',default='artifacts/grader_results')
     cases = commands.add_parser('generate-grader-cases',help='Generate labelled tool-executed software cases')
     cases.add_argument('--out',required=True)
+    dataset = commands.add_parser('validate-dataset',help='Validate concrete dataset files and reference artifacts')
+    dataset.add_argument('--manifest',required=True)
+    generate = commands.add_parser('generate',help='Generate implemented templates with verified reference artifacts')
+    generate.add_argument('--out',required=True)
+    generate.add_argument('--templates',default='T01,T02,T03,T04,T05,T06,T07,T08')
+    generate.add_argument('--count-per-template',type=int,default=3)
+    generate.add_argument('--seed',type=int,default=None)
+    generate.add_argument('--split',default='probe')
+    reference = commands.add_parser('reference',help='Re-execute public reference solutions and verify final hashes')
+    reference.add_argument('--manifest',required=True)
+    reference.add_argument('--out',default='artifacts/reference_replay')
     args = parser.parse_args()
+    if args.command == 'reference':
+        from officegym.tasks.replay import reference_manifest
+        print(json.dumps(reference_manifest(args.manifest,args.out),indent=2))
+    if args.command == 'generate':
+        from officegym.tasks.generate import generate
+        manifest = generate(args.out,args.templates.split(','),args.count_per_template,args.seed,args.split)
+        print(json.dumps({'generated_instances':len(manifest['instances'])}))
+    if args.command == 'validate-dataset':
+        from officegym.tasks.validate import validate_dataset
+        print(json.dumps(validate_dataset(args.manifest),indent=2))
     if args.command == 'generate-grader-cases':
         from officegym.graders.cases import generate_cases
         print(json.dumps({'generated_cases':generate_cases(args.out)}))

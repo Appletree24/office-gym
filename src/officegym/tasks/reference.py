@@ -16,6 +16,21 @@ def solve(task, call):
     invoke('office.get_context',{})
     people = task['required_participant_ids']
     start,end = task['allowed_window_utc']
+    if task.get('collect_availability'):
+        for person in people:
+            sent = invoke('mail.send',dict(recipient_ids=[person],kind='coordination',subject='Availability',body='Please provide availability',request={'type':'availability'}),True)
+            facts = None
+            for _ in range(20):
+                thread = invoke('mail.get_thread',{'thread_id':sent['message_id']})
+                replies = [message for message in thread['items'] if message['kind']=='reply' and message['sender_id']==person]
+                if replies:
+                    facts = json.loads(replies[-1]['body'])['facts']
+                    break
+                invoke('clock.wait',{'until':task['deadline_at']})
+            if facts is None or len(facts.get('available_windows',[]))!=1:
+                raise RuntimeError('reference requires one explicit availability window')
+            left,right = facts['available_windows'][0]
+            start,end = max(start,left),min(end,right)
     duration = task.get('duration_seconds',1800)
     busy = invoke('calendar.query',dict(person_ids=people,start_at=start,end_at=end))
     while busy.get('next_cursor'):
@@ -59,12 +74,25 @@ def solve(task, call):
             events = invoke('events.poll',{'after_seq':cursor})
             cursor = events['next_seq']
             for event in events['items']:
-                if event['kind'] != 'MeetingRescheduleRequested':
+                if event['kind'] not in ('MeetingRescheduleRequested','AttendeeChanged','DocumentVersionPublished'):
                     continue
                 facts = json.loads(event['details_json'])
-                if facts.get('meeting_id') != meeting['id']:
+                if event['kind']=='DocumentVersionPublished':
+                    if facts['document_id'] not in task.get('track_document_ids',[]):
+                        continue
+                    ref = {'document_id':facts['document_id'],'version':facts['version']}
+                    document = invoke('documents.read',ref)
+                    while document.get('next_cursor'):
+                        document = invoke('documents.read',dict(ref,cursor=document['next_cursor']))
+                    refs = [item for item in json.loads(meeting['document_refs_json']) if item['document_id']!=ref['document_id']] + [ref]
+                    meeting = invoke('calendar.update',dict(meeting_id=meeting['id'],expected_version=meeting['version'],patch={'document_refs':refs}),True)
+                elif facts.get('meeting_id') != meeting['id']:
                     continue
-                meeting = invoke('calendar.update',dict(meeting_id=meeting['id'],expected_version=meeting['version'],patch={'start_at':facts['start_at'],'end_at':facts['end_at']}),True)
+                elif event['kind']=='AttendeeChanged':
+                    meeting = invoke('calendar.get',{'meeting_id':meeting['id']})
+                    people = json.loads(meeting['participant_ids_json'])
+                else:
+                    meeting = invoke('calendar.update',dict(meeting_id=meeting['id'],expected_version=meeting['version'],patch={'start_at':facts['start_at'],'end_at':facts['end_at']}),True)
                 approval_id = confirm(meeting)
                 invoke('mail.send',dict(recipient_ids=people,kind='reschedule',subject=meeting['title'],body='',meeting_id=meeting['id'],meeting_version=meeting['version'],approval_id=approval_id,attachment_refs=task.get('required_attachment_refs',[])),True)
             # Re-poll after the wait, including events exactly at the horizon.
