@@ -7,8 +7,8 @@ from .artifacts import write_instance
 from .integrity import validate_unique
 
 TRAIN_TEMPLATES = ('T01','T02','T03','T04','T05','T06','T07','T08')
-SUPPORTED = TRAIN_TEMPLATES + ('D01','D02')
-SEED_RANGES = {'train':(100000,199999),'dev':(200000,299999),'probe':(900000,909999)}
+SUPPORTED = TRAIN_TEMPLATES + ('D01','D02','U01','U02','U03','U04')
+SEED_RANGES = {'train':(100000,199999),'dev':(200000,299999),'probe':(900000,909999),'unseen_test':(500000,599999)}
 
 
 def generate(out,templates=TRAIN_TEMPLATES,count_per_template=3,seed=None,split='probe'):
@@ -20,12 +20,14 @@ def generate(out,templates=TRAIN_TEMPLATES,count_per_template=3,seed=None,split=
         seed = SEED_RANGES[split][0]
     if type(count_per_template) is not int or count_per_template<1 or type(seed) is not int or seed<0:
         raise ValueError('invalid generation counts or seed')
-    if split not in ('train','dev','probe'):
+    if split not in ('train','dev','probe','unseen_test'):
         raise ValueError('formal test distribution not yet implemented')
-    if split=='train' and any(template.startswith('D') for template in templates):
+    if split=='train' and any(template not in TRAIN_TEMPLATES for template in templates):
         raise ValueError('development template cannot enter training')
     if split=='dev' and any(not template.startswith('D') for template in templates):
         raise ValueError('dev split requires development templates')
+    if split=='unseen_test' and any(not template.startswith('U') for template in templates):
+        raise ValueError('unseen split requires isolated unseen templates')
     low,high = SEED_RANGES[split]
     if not low <= seed <= seed+count_per_template-1 <= high:
         raise ValueError('seed range crosses dataset split boundary')
@@ -41,7 +43,7 @@ def generate(out,templates=TRAIN_TEMPLATES,count_per_template=3,seed=None,split=
             public = dict(principal_id='assistant',required_participant_ids=['owner','client'],allowed_window_utc=[base+10000,base+20000],deadline_at=base+9000,title='Review '+str(number),requires_approval=template!='T01',approver_id='owner')
             nodes = ['plan','invite'] if template=='T01' else ['plan','confirm','invite']
             private, rules = {}, {}
-            if template=='T08':
+            if template in ('T08','U04'):
                 public.update(followup_required=True,deadline_at=base+25000)
                 action = dict(title='Send proposal '+str(number),assignee_id='owner',due_at=base+30000)
                 private['required_todos'] = [action]
@@ -51,14 +53,24 @@ def generate(out,templates=TRAIN_TEMPLATES,count_per_template=3,seed=None,split=
                 public['collect_availability'] = True
                 nodes.insert(1,'collect_replies')
                 rules['reply_rules'] = {person:{'availability':{'delay_seconds':180,'response':'provided','facts':{'available_windows':[[base+12000,base+18000]]}}} for person in ('owner','client')}
+            if template=='U03':
+                public['preparation_todos'] = [dict(title='Prepare review material '+str(number),assignee_id='assistant',due_at=base+5000)]
+                nodes = ['plan','prepare_todo','complete_preparation','confirm','invite']
             scheduled = []
-            if template in ('T06','T07','D02'):
+            if template=='U04':
+                public.update(followup_monitor_until=base+18000,allowed_recipient_ids=['owner','client','replacement'])
+                nodes += ['owner_change','todo_correction','followup_message']
+                scheduled.append(dict(id='owner_change',due_at=base+15000,kind='Notification',payload={'type':'TodoOwnerChanged','meeting_selector':{'organizer_id':'assistant','title':public['title']},'title':action['title'],'assignee_id':'replacement'}))
+            if template in ('T06','T07','D02','U02'):
                 public.update(monitor_until=base+3000,allowed_recipient_ids=['owner','client','replacement'])
                 payload = {'meeting_selector':{'organizer_id':'assistant','title':public['title']}}
                 if template in ('T06','D02'):
                     payload.update(start_at=base+14000,end_at=base+15800)
                 else:
                     payload['participant_ids'] = ['owner','replacement']
+                    if template=='U02':
+                        payload['approver_id'] = 'replacement'
+                        nodes += ['replacement_confirmation','updated_invite']
                 scheduled.append(dict(id='perturbation',due_at=base+1500,kind='MeetingRescheduleRequested' if template in ('T06','D02') else 'AttendeeChanged',payload=payload))
             refs = [{'document_id':'agenda','version':1}] if template in ('T05','D02') else []
             if refs:
@@ -68,12 +80,23 @@ def generate(out,templates=TRAIN_TEMPLATES,count_per_template=3,seed=None,split=
                 public['track_document_ids'] = ['agenda']
                 scheduled.append(dict(id='material_update',due_at=base+2200,kind='DocumentVersionPublished',payload={'document_id':'agenda','expected_version':1,'content':'Updated material '+str(number)}))
             rules['approval_rules'] = {'owner':{'decision':'grant','delay_seconds':120}}
+            if template=='U03':
+                rules['approval_rules']['owner']['required_preparation'] = public['preparation_todos']
+            if template=='U01':
+                public.update(handoff_thread_id='handoff',initial_coordinator_id='owner')
+                nodes.insert(0,'read_handoff_chain')
+                rules['approval_rules']['replacement'] = {'decision':'grant','delay_seconds':180}
+            if template=='U02':
+                rules['approval_rules']['replacement'] = {'decision':'grant','delay_seconds':180}
             with tempfile.TemporaryDirectory() as temporary:
                 world = World.create(Path(temporary)/'seed.sqlite',sim_time=base,deadline=public['deadline_at'],principal_id='assistant')
                 try:
                     with world.db:
                         for person in ('assistant','owner','client','replacement'):
                             world.db.execute('INSERT INTO people VALUES (?,?,?,?,?)',(person,person,person+'@office.test','UTC','["*"]'))
+                    if template=='U01':
+                        with world.db:
+                            world.db.execute('INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',('handoff_1','handoff','owner','["assistant","replacement"]','coordination','Coordinator handoff','Replacement now coordinates this review.','[]',canonical({'type':'coordinator_handoff','new_coordinator_id':'replacement','approver_id':'replacement'}),None,None,base))
                     client = Dispatcher(world)
                     if template in ('T03','D01'):
                         # Trusted construction uses business validation without Agent billing.
@@ -88,7 +111,7 @@ def generate(out,templates=TRAIN_TEMPLATES,count_per_template=3,seed=None,split=
                         client.set_meta('public_task',public)
                         for key,value in rules.items():
                             client.set_meta(key,value)
-                    task = dict(instance_id=template+'_'+str(number),split=split,template_id=template,scenario_family_id='family_'+str(number),depth_level=3 if template=='T08' else 1,perturbation_level=len(scheduled),seed=number,public_task=public,dependency_dag={'nodes':nodes,'edges':list(zip(nodes,nodes[1:]))})
+                    task = dict(instance_id=template+'_'+str(number),split=split,template_id=template,scenario_family_id='family_'+str(number),depth_level=3 if template in ('T08','U04') else 1,perturbation_level=len(scheduled),seed=number,public_task=public,dependency_dag={'nodes':nodes,'edges':list(zip(nodes,nodes[1:]))})
                     entries.append(write_instance(root,task,world,private,dict(rules,scheduled_events=scheduled)))
                 finally:
                     world.close()

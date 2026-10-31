@@ -124,8 +124,11 @@ class Dispatcher:
                     raise ToolError('VERSION_CONFLICT')
                 if not isinstance(args['patch'], dict):
                     raise ToolError('INVALID_ARGUMENT')
+                before = {'version':row['version'],'content':dict(content)}
                 content.update(args['patch'])
                 self.db.execute('UPDATE board SET version=version+1,content_json=?,updated_at=? WHERE id=1',
                                 (canonical(content), self.meta('sim_time')))
+                from officegym.env.audit import append_mutation
+                append_mutation(self,name,'board','1',row['version']+1,before,{'version':row['version']+1,'content':content},[self.meta('principal_id')])
             return {'version': row['version'] + (name == 'board.patch'), 'content': content}
         raise ToolError('INVALID_ARGUMENT')

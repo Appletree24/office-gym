@@ -10,3 +10,6 @@ description = "Deterministic office agent research environment"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[project.optional-dependencies]
+mcp = ["mcp==1.30.0"]

@@ -1,6 +1,7 @@
 """Versioned todos, scoped through their source meeting."""
 from officegym.env.world import canonical
 from .pagination import page
+import json
 
 
 def todos(client, name, args):
@@ -9,9 +10,12 @@ def todos(client, name, args):
     def allowed(meeting_id):
         row = db.execute('SELECT organizer_id FROM meetings WHERE id=?', (meeting_id,)).fetchone()
         return bool(row and row[0] == principal)
+    def readable(meeting_id):
+        row = db.execute('SELECT organizer_id,participant_ids_json FROM meetings WHERE id=?',(meeting_id,)).fetchone()
+        return bool(row and (principal==row['organizer_id'] or principal in json.loads(row['participant_ids_json'])))
     if name == 'todos.search':
         rows = db.execute('SELECT * FROM todos ORDER BY id').fetchall()
-        return page([dict(row) for row in rows if (row['assignee_id'] == principal or allowed(row['source_meeting_id'])) and args['query'].casefold() in row['title'].casefold()],args)
+        return page([dict(row) for row in rows if (row['assignee_id'] == principal or readable(row['source_meeting_id'])) and args['query'].casefold() in row['title'].casefold()],args)
     before = None
     if name == 'todos.create':
         todo = {key: args[key] for key in ('title','assignee_id','due_at','source_meeting_id')}
@@ -42,7 +46,6 @@ def todos(client, name, args):
         db.execute('INSERT INTO todos ('+','.join(fields)+') VALUES ('+','.join('?' for _ in fields)+')', tuple(todo.values()))
     else:
         db.execute('UPDATE todos SET '+','.join(key+'=?' for key in fields)+' WHERE id=?', (*todo.values(),todo['id']))
-    seq = db.execute('SELECT coalesce(max(seq),0)+1 FROM event_log').fetchone()[0]
-    db.execute('INSERT INTO event_log (event_id,sim_time,actor_id,kind,object_type,object_id,business_version,before_json,after_json,details_json,visibility_json) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-               ('event_'+str(seq),now,principal,name,'todo',todo['id'],todo['version'],canonical(before) if before else None,canonical(todo),'{}',canonical(sorted(set([principal,todo['assignee_id']])))))
+    from officegym.env.audit import append_mutation
+    append_mutation(client,name,'todo',todo['id'],todo['version'],before,todo,[principal,todo['assignee_id']])
     return todo

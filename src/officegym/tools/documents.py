@@ -41,4 +41,7 @@ def documents(client, name, args):
     version = args['expected_version'] + 1
     db.execute('INSERT INTO documents VALUES (?,?,?,?,?,?,?,?)',
                (args['document_id'], version, args['title'], args['content'], hashlib.sha256(args['content'].encode()).hexdigest(), principal, row['acl_json'] if row else canonical([principal]), client.meta('sim_time')))
+    from officegym.env.audit import append_mutation
+    after = dict(db.execute('SELECT * FROM documents WHERE document_id=? AND version=?',(args['document_id'],version)).fetchone())
+    append_mutation(client,name,'document',args['document_id'],version,dict(row) if row else None,after,json.loads(after['acl_json'])+[principal])
     return {'document_id': args['document_id'], 'version': version}

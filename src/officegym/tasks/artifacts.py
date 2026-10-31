@@ -4,6 +4,7 @@ from pathlib import Path
 from officegym.env.world import canonical
 from officegym.env.rollout import clone_world
 from officegym.graders.result import evaluate
+from officegym.graders.operations import reconcile
 from officegym.tools.dispatcher import Dispatcher
 from .reference import solve
 from .integrity import fingerprints,dependency_depth
@@ -43,6 +44,10 @@ def write_instance(root, task, initial_world, private_spec, event_rules, identit
             solve(public,call)
         grade = evaluate(final_path,{**public,**private_spec},snapshot)
         (directory/'reference_grade.json').write_text(canonical(grade)+'\n')
+        audit = reconcile(final_path)
+        (directory/'reference_operations.json').write_text(canonical(audit)+'\n')
+        if not audit['consistent']:
+            raise ValueError('reference operation reconciliation failed: '+canonical(audit))
         if not grade['full_success']:
             raise ValueError('generated task reference failed: '+canonical(grade))
         terminal_hash = world.state_hash()

@@ -66,7 +66,6 @@ def calendar(client, name, args):
         db.execute('UPDATE meetings SET ' + ','.join(key + '=?' for key in fields) + ' WHERE id=?', (*meeting.values(), meeting['id']))
         db.execute("UPDATE approvals SET status='invalidated' WHERE meeting_id=? AND status IN ('pending','granted')", (meeting['id'],))
     db.execute('INSERT INTO meeting_history VALUES (?,?,?)', (meeting['id'], meeting['version'], canonical(meeting)))
-    sequence = db.execute('SELECT coalesce(max(seq),0)+1 FROM event_log').fetchone()[0]
-    db.execute('INSERT INTO event_log (event_id,sim_time,actor_id,kind,object_type,object_id,business_version,before_json,after_json,details_json,visibility_json) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-        ('event_' + str(sequence), now, principal, name, 'meeting', meeting['id'], meeting['version'], canonical(before) if before else None, canonical(meeting), '{}', canonical(sorted(set(participants + [principal])))))
+    from officegym.env.audit import append_mutation
+    append_mutation(client,name,'meeting',meeting['id'],meeting['version'],before,meeting,participants + [principal])
     return meeting

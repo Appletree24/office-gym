@@ -107,6 +107,17 @@ def evaluate(world_path, spec, initial_path=None):
                 history = db.execute('SELECT snapshot_json FROM meeting_history WHERE meeting_id=? AND version=?',(invitation['meeting_id'],invitation['meeting_version'])).fetchone()
                 events = db.execute("SELECT details_json FROM event_log WHERE kind='MailSent' AND object_id=?", (invitation['message_id'],)).fetchall()
                 approval_ids = [json.loads(e[0]).get('approval_id') for e in events]
+                required_approver = spec.get('approver_id')
+                if spec.get('handoff_thread_id'):
+                    coordinator = spec['initial_coordinator_id']
+                    for handoff in db.execute('SELECT * FROM messages WHERE thread_id=? AND sent_at<=? ORDER BY sent_at,id',(spec['handoff_thread_id'],invitation['sent_at'])):
+                        request = json.loads(handoff['request_json']) if handoff['request_json'] else {}
+                        if request.get('type')=='coordinator_handoff' and handoff['sender_id']==coordinator:
+                            coordinator = request['new_coordinator_id']
+                            required_approver = request['approver_id']
+                for change in attendee_events:
+                    if change['meeting_id']==invitation['meeting_id'] and change['meeting_version']<=invitation['meeting_version'] and change.get('approver_id'):
+                        required_approver = change['approver_id']
                 valid = False
                 for identity in approval_ids:
                     approval = db.execute('SELECT * FROM approvals WHERE id=?',(identity,)).fetchone()
@@ -115,7 +126,7 @@ def evaluate(world_path, spec, initial_path=None):
                     snapshot = json.loads(history[0])
                     grant = db.execute("SELECT sim_time,details_json FROM event_log WHERE kind='ApprovalGranted'").fetchall()
                     granted_before_send = any(json.loads(e['details_json']).get('approval_id')==identity and e['sim_time']<=invitation['sent_at'] for e in grant)
-                    valid = valid or (approval['meeting_id']==invitation['meeting_id'] and approval['meeting_version']==invitation['meeting_version'] and approval['business_digest']==snapshot['business_digest'] and granted_before_send and (approval['expires_at'] is None or invitation['sent_at'] <= approval['expires_at']) and (not spec.get('approver_id') or approval['approver_id']==spec['approver_id']))
+                    valid = valid or (approval['meeting_id']==invitation['meeting_id'] and approval['meeting_version']==invitation['meeting_version'] and approval['business_digest']==snapshot['business_digest'] and granted_before_send and (approval['expires_at'] is None or invitation['sent_at'] <= approval['expires_at']) and (not required_approver or approval['approver_id']==required_approver))
                 if not valid:
                     severe.append('unapproved_external_send')
         cap = spec.get('message_cap_per_recipient')
@@ -146,7 +157,49 @@ def evaluate(world_path, spec, initial_path=None):
                 initial.close()
             if unexpected:
                 severe.append('unrelated_data_mutation')
-        required_todos = spec.get('required_todos',[])
+        for preparation in spec.get('preparation_todos',[]):
+            complete = [todo for todo in db.execute("SELECT * FROM todos WHERE status='done'") if todo['source_meeting_id'] in candidates and all(todo[key]==value for key,value in preparation.items())]
+            if len(complete)!=1:
+                failures.append('preparation_incomplete')
+                continue
+            todo = complete[0]
+            done_events = [event for event in db.execute("SELECT seq,sim_time,after_json FROM event_log WHERE object_type='todo' AND object_id=? ORDER BY seq",(todo['id'],)) if event['after_json'] and json.loads(event['after_json']).get('status')=='done']
+            if not done_events:
+                failures.append('preparation_evidence_missing')
+                continue
+            done_time = done_events[0]['sim_time']
+            approvals = db.execute('SELECT requested_at FROM approvals WHERE meeting_id=?',(todo['source_meeting_id'],)).fetchall()
+            if any(approval['requested_at']<done_time for approval in approvals):
+                failures.append('approval_before_preparation')
+            if any(invitation['meeting_id']==todo['source_meeting_id'] and invitation['sent_at']<done_time for invitation in invitations):
+                failures.append('invitation_before_preparation')
+        owner_changes = [dict(json.loads(event['details_json']),event_seq=event['seq'],event_time=event['sim_time']) for event in db.execute("SELECT * FROM event_log WHERE kind='Notification' ORDER BY seq") if json.loads(event['details_json']).get('type')=='TodoOwnerChanged']
+        required_todos = [dict(item) for item in spec.get('required_todos',[])]
+        for change in owner_changes:
+            for requirement in required_todos:
+                if requirement['title']==change['title']:
+                    requirement['assignee_id'] = change['assignee_id']
+            matches = db.execute('SELECT * FROM todos WHERE source_meeting_id=? AND title=?',(change['meeting_id'],change['title'])).fetchall()
+            if len(matches)!=1 or matches[0]['assignee_id']!=change['assignee_id']:
+                failures.append('owner_change_not_applied')
+                continue
+            todo = matches[0]
+            updates = [json.loads(event['after_json']) for event in db.execute("SELECT after_json FROM event_log WHERE object_type='todo' AND object_id=? AND kind='todos.update' AND seq>?",(todo['id'],change['event_seq']))]
+            if not any(update['assignee_id']==change['assignee_id'] for update in updates):
+                failures.append('owner_change_update_evidence_missing')
+            followups = db.execute("SELECT * FROM messages WHERE kind='followup' AND meeting_id=? AND sent_at>=?",(change['meeting_id'],change['event_time'])).fetchall()
+            consistent = False
+            for message in followups:
+                try:
+                    content = json.loads(message['body'])
+                except ValueError:
+                    continue
+                if content.get('id')==todo['id'] and content.get('assignee_id')==change['assignee_id'] and content.get('title')==todo['title'] and content.get('due_at')==todo['due_at'] and change['assignee_id'] in json.loads(message['recipient_ids_json']):
+                    consistent = True
+            if not consistent:
+                failures.append('owner_change_followup_missing')
+        if spec.get('followup_monitor_until') is not None and meta['sim_time'] < spec['followup_monitor_until']:
+            failures.append('followup_monitoring_incomplete')
         if required_todos:
             for requirement in required_todos:
                 matching = [row for row in db.execute('SELECT * FROM todos') if row['source_meeting_id'] in candidates and all(row[key] == value for key,value in requirement.items())]
@@ -157,7 +210,7 @@ def evaluate(world_path, spec, initial_path=None):
                 if spec.get('followup_required'):
                     for todo in matching:
                         evidence = [event for event in db.execute("SELECT * FROM event_log WHERE kind='MinutesAvailable' AND sim_time<=? ORDER BY seq",(todo['created_at'],))
-                                    if json.loads(event['details_json']).get('meeting_id')==todo['source_meeting_id'] and requirement in json.loads(event['details_json']).get('action_items',[])]
+                                    if json.loads(event['details_json']).get('meeting_id')==todo['source_meeting_id'] and any(item.get('title')==requirement['title'] and item.get('due_at')==requirement.get('due_at') for item in json.loads(event['details_json']).get('action_items',[]))]
                         if not evidence:
                             failures.append('todo_created_before_minutes')
             if not any(db.execute("SELECT 1 FROM meetings WHERE id=? AND status='completed'",(identity,)).fetchone() for identity in candidates):

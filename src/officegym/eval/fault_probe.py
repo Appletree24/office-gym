@@ -1,33 +1,47 @@
 """Real worker-kill software probe; not a model comparison or formal fault evaluation."""
 import multiprocessing
 import os
+import json
 import sqlite3
 import time
 from pathlib import Path
 from officegym.env.world import World, canonical
 from officegym.env.service import serve, Client
 from officegym.harness.journal import Journal
+from officegym.harness.loop import Harness,AssistantTurn
 
 
 def committing_worker(socket_path, runtime, ready):
     journal = Journal(runtime)
     client = Client(socket_path)
     args = dict(recipient_ids=['b'],kind='invitation',subject='Review',body='',meeting_id='meeting_1',meeting_version=1)
-    operation = journal.prepare('mail.send',args)
-    result = client.call('mail.send',args,operation)
-    if not result['ok']:
-        raise RuntimeError(result)
-    ready.send({'operation_id':operation,'pid':os.getpid(),'committed_result':result})
-    # Fault controller kills this worker before any local acknowledgement.
-    ready.recv()
-    journal.acknowledge(operation,result)
+    class ProbePolicy:
+        def generate(self,*unused):
+            return AssistantTurn('mail.send',args,10,8)
+    def intercepted(name,arguments,operation):
+        result = client.call(name,arguments,operation)
+        if not result['ok']:
+            raise RuntimeError(result)
+        ready.send({'operation_id':operation,'pid':os.getpid(),'committed_result':result})
+        # Controller kills worker after world commit and before Harness ack/log.
+        ready.recv()
+        return result
+    harness = Harness(ProbePolicy(),intercepted,{'goal':'Send review invitation'},Path(runtime).parent/'harness.jsonl',journal=journal)
+    harness.run()
     journal.close()
 
 
 def recovering_worker(socket_path,runtime,results):
     journal = Journal(runtime)
-    recovered = journal.recover(Client(socket_path).call)
-    results.send({'pid':os.getpid(),'recovered':recovered})
+    class FinishPolicy:
+        def generate(self,*unused):
+            return AssistantTurn('task.finish',{'summary':'Invitation recovered'},6,4)
+    harness = Harness(FinishPolicy(),Client(socket_path).call,{'goal':'Send review invitation'},Path(runtime).parent/'harness.jsonl',journal=journal)
+    before = harness.restore()
+    harness.reconcile_pending()
+    recovered = [json.loads(message['content']) for message in harness.messages if message.get('role')=='tool']
+    termination = harness.run()
+    results.send({'pid':os.getpid(),'recovered':recovered,'usage_before_recovery':before,'termination':termination,'context_messages':len(harness.messages)})
     journal.close()
 
 
@@ -82,7 +96,11 @@ def run(out):
         runtime.close()
         if outbox != 1 or status != 'RECONCILED' or not recovered['recovered'][0]['ok']:
             raise RuntimeError('fault reconciliation invariant failed')
-        report = dict(kind='software_fault_probe_not_model_evaluation',protocol='after_world_commit',world_pid=server.pid,world_survived=True,
+        from officegym.graders.result import evaluate
+        grade = evaluate(root/'world.sqlite',dict(principal_id='a',required_participant_ids=['b'],allowed_window_utc=[4000,6000],deadline_at=10000))
+        if not grade['full_success']:
+            raise RuntimeError('recovered world failed independent grading')
+        report = dict(grade=grade,kind='software_fault_probe_not_model_evaluation',protocol='after_world_commit',world_pid=server.pid,world_survived=True,
                       killed_worker_exitcode=worker.exitcode,committed=committed,recovery=recovered,outbox_effects=outbox,journal_status=status,final_state_hash=state_hash)
         (root/'fault_report.json').write_text(canonical(report))
         return report

@@ -3,7 +3,8 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
-from officegym.tasks.generate import generate,TRAIN_TEMPLATES
+from officegym.tasks.generate import generate,TRAIN_TEMPLATES,SUPPORTED
+from officegym.tasks.replay import reference_manifest
 from officegym.tasks.validate import validate_dataset
 
 
@@ -40,3 +41,17 @@ class GeneratorTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     generate(root,**options)
                 self.assertFalse(root.exists())
+
+    def test_all_fourteen_templates_replay_and_partition_isolation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = generate(root/'tasks',templates=SUPPORTED,count_per_template=1)
+            self.assertEqual(len(manifest['instances']),14)
+            self.assertEqual(validate_dataset(root/'tasks'/'manifest.json')['templates'],14)
+            replay = reference_manifest(root/'tasks'/'manifest.json',root/'replay')
+            self.assertEqual(replay['reference_passed'],14)
+            self.assertEqual(replay['replay_matched'],14)
+            for template in ('U01','U02','U03','U04'):
+                with self.assertRaises(ValueError):
+                    generate(root/'invalid',templates=[template],split='train')
+                self.assertFalse((root/'invalid').exists())

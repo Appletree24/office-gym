@@ -1,0 +1,40 @@
+import tempfile
+import unittest
+from pathlib import Path
+from officegym.tasks.generate import generate
+from officegym.eval.episode import run_episode
+from officegym.harness.loop import AssistantTurn,Budget
+
+
+class EpisodeTests(unittest.TestCase):
+    def test_early_finish_not_success_and_artifacts_retained(self):
+        class Policy:
+            model_version = 'scripted-unit-fixture'
+            def generate(self,*args):
+                return AssistantTurn('task.finish',{'summary':'done'},5,3)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = generate(root/'tasks',templates=['T01'],count_per_template=1)
+            result = run_episode(root/'tasks'/manifest['instances'][0]['path'],root/'run',Policy(),mode='simple')
+            self.assertEqual(result['termination']['state'],'DECLARED_DONE')
+            self.assertFalse(result['grade']['full_success'])
+            self.assertTrue((root/'run'/'trajectory.jsonl').is_file())
+            self.assertTrue((root/'run'/'world.sqlite').is_file())
+            self.assertTrue((root/'run'/'result.json').is_file())
+            self.assertTrue((root/'run'/'provenance.json').is_file())
+            self.assertEqual(sum(result['versions']['tool_counts'].values()),24)
+            self.assertEqual(result['versions']['model_version'],'scripted-unit-fixture')
+
+    def test_custom_call_budget_injected_before_service(self):
+        class Policy:
+            model_version = 'scripted-fixture'
+            def generate(self,*args):
+                return AssistantTurn('board.read',{},5,3)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = generate(root/'tasks',templates=['T01'],count_per_template=1)
+            result = run_episode(root/'tasks'/manifest['instances'][0]['path'],root/'run',Policy(),mode='full',budget=Budget(tool_calls=2))
+            self.assertEqual(result['termination']['state'],'BUDGET_STOP')
+            self.assertEqual(result['termination']['tool_calls'],2)
+            self.assertIsNone(result['infrastructure_error'])
+            self.assertTrue((root/'run'/'budget.json').is_file())

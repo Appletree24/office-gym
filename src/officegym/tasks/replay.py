@@ -5,6 +5,7 @@ from officegym.env.world import canonical
 from officegym.env.rollout import clone_world
 from officegym.tools.dispatcher import Dispatcher
 from officegym.graders.result import evaluate
+from officegym.graders.operations import reconcile
 from .reference import solve
 from .validate import validate_dataset
 
@@ -32,14 +33,15 @@ def reference_manifest(manifest_path,out):
                     return result
                 solve(public,call)
             grade = evaluate(directory/'final.sqlite',{**public,**private},source/'initial_world.sqlite')
+            audit = reconcile(directory/'final.sqlite')
             fingerprint = world.state_hash()
-            record = dict(instance_id=entry['instance_id'],grade=grade,final_hash=fingerprint,replay_matches=fingerprint==entry['reference_final_hash'])
+            record = dict(instance_id=entry['instance_id'],grade=grade,operation_audit=audit,final_hash=fingerprint,replay_matches=fingerprint==entry['reference_final_hash'])
             (directory/'grade.json').write_text(canonical(record)+'\n')
             results.append(record)
         finally:
             world.close()
-    summary = dict(instances=len(results),reference_passed=sum(row['grade']['full_success'] for row in results),replay_matched=sum(row['replay_matches'] for row in results),kind='reference_software_validation_not_model_results')
+    summary = dict(instances=len(results),reference_passed=sum(row['grade']['full_success'] for row in results),replay_matched=sum(row['replay_matches'] for row in results),operation_audits_passed=sum(row['operation_audit']['consistent'] for row in results),kind='reference_software_validation_not_model_results')
     (out/'summary.json').write_text(canonical(summary)+'\n')
-    if any(not row['grade']['full_success'] or not row['replay_matches'] for row in results):
+    if any(not row['grade']['full_success'] or not row['replay_matches'] or not row['operation_audit']['consistent'] for row in results):
         raise ValueError('reference or deterministic replay failed; inspect saved records')
     return summary

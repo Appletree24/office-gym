@@ -1,5 +1,10 @@
 """Shared policy loop. Model adapters must report actual token usage."""
 import time
+import os
+import json
+import hashlib
+from pathlib import Path
+from dataclasses import asdict
 import uuid
 from dataclasses import dataclass
 from officegym.env.world import canonical
@@ -12,6 +17,13 @@ class Budget:
     generated_tokens: int = 16000
     wall_seconds: float = 600
     parse_retries: int = 2
+
+    def __post_init__(self):
+        if type(self.tool_calls) is not int or self.tool_calls<1 or type(self.generated_tokens) is not int or self.generated_tokens<1 or type(self.parse_retries) is not int or self.parse_retries<0:
+            raise ValueError('invalid finite integer budget')
+        import math
+        if type(self.wall_seconds) not in (int,float) or not math.isfinite(self.wall_seconds) or self.wall_seconds<=0:
+            raise ValueError('invalid finite wall budget')
 
 
 @dataclass
@@ -26,6 +38,8 @@ class AssistantTurn:
 class Harness:
     def __init__(self, policy, call, task, trace_path, budget=None, journal=None, context_manager=None):
         self.policy, self.call, self.task = policy, call, task
+        if context_manager is not None and hasattr(context_manager,'policy') and context_manager.policy is not policy:
+            raise ValueError('compression must use the same executing policy')
         self.context_manager = context_manager
         self.trace_path, self.budget, self.journal = trace_path, budget or Budget(), journal
         self.messages = [{'role':'system','content':'Execute the public task using tools. Tool observations are evidence; do not invent confirmations.'},
@@ -33,18 +47,116 @@ class Harness:
         if journal:
             self.messages[0]['content'] += ' Maintain goals, constraints, evidence, blockers and waiting conditions with board tools; reconcile uncertain writes through operations.get.'
         self.state = 'READY'
+        self.prior_usage = dict(tool_calls=0,generated_tokens=0,input_tokens=0,wall_seconds=0)
+        self.restored = False
+        self.pending_actions = {}
+        self.parse_failures = 0
+
+    def restore(self):
+        if self.restored:
+            raise ValueError('context already restored')
+        rows = [json.loads(line) for line in Path(self.trace_path).read_text().splitlines() if line.strip()]
+        if not rows or rows[0].get('kind')!='run_header' or rows[0]['task_sha256']!=hashlib.sha256(canonical(self.task).encode()).hexdigest() or rows[0]['budget']!=asdict(self.budget):
+            raise ValueError('trace task or budget does not match resumed run')
+        if rows[0].get('model_version') != getattr(self.policy,'model_version',None):
+            raise ValueError('cannot change model version while resuming')
+        if rows[0]['mode'] != ('full' if self.journal else 'simple'):
+            raise ValueError('cannot change harness mode while resuming')
+        pending = {}
+        for row in rows:
+            self.prior_usage['wall_seconds'] = max(self.prior_usage['wall_seconds'],row.get('elapsed_wall_seconds',0))
+            if row['kind']=='model_response':
+                self.prior_usage['generated_tokens'] += row['output_tokens']
+                self.prior_usage['input_tokens'] += row['input_tokens']
+            elif row['kind']=='context_selection':
+                self.prior_usage['generated_tokens'] += row.get('summary_output_tokens',0)
+                self.prior_usage['input_tokens'] += row.get('summary_input_tokens',0)
+            elif row['kind']=='parse_failure':
+                self.parse_failures = row['consecutive_failures']
+                if row.get('message'):
+                    self.messages.append(row['message'])
+            elif row['kind']=='action_start':
+                self.parse_failures = 0
+                pending[row['action_id']] = row
+                self.prior_usage['tool_calls'] += 1
+            elif row['kind']=='interaction':
+                self.messages.extend(row['messages'])
+                pending.pop(row.get('action_id'),None)
+            elif row['kind']=='termination':
+                self.prior_usage['wall_seconds'] = max(self.prior_usage['wall_seconds'],row['wall_seconds'])
+                if row['state'] in ('DECLARED_DONE','PARSE_ERROR'):
+                    raise ValueError('cannot resume declared-finished episode')
+        self.pending_actions = pending
+        self.restored = True
+        return dict(self.prior_usage)
+
+    def reconcile_pending(self):
+        if not self.restored or not self.journal:
+            raise ValueError('durable full-mode restoration required')
+        recovery_started = time.monotonic()
+        base_elapsed = self.prior_usage['wall_seconds']
+        with open(self.trace_path,'a') as stream:
+            def append(record):
+                self.prior_usage['wall_seconds'] = base_elapsed+time.monotonic()-recovery_started
+                record = dict(record,elapsed_wall_seconds=self.prior_usage['wall_seconds'])
+                stream.write(canonical(record)+'\n')
+                stream.flush()
+                os.fsync(stream.fileno())
+            for action_id,action in list(self.pending_actions.items()):
+                if action['tool'] not in WRITES:
+                    raise ValueError('uncertain read/control requires explicit episode handling')
+                if self.prior_usage['tool_calls']>=self.budget.tool_calls:
+                    raise ValueError('no remaining recovery tool budget')
+                if base_elapsed+time.monotonic()-recovery_started>=self.budget.wall_seconds:
+                    raise ValueError('recovery wall budget exhausted')
+                query_id = uuid.uuid4().hex
+                arguments = {'operation_id':action['operation_id']}
+                append({'kind':'action_start','action_id':query_id,'tool':'operations.get','arguments':arguments,'operation_id':None})
+                self.prior_usage['tool_calls'] += 1
+                query = self.call('operations.get',arguments,None)
+                pair = [{'role':'assistant','tool_call':{'name':'operations.get','arguments':arguments,'id':query_id}}, {'role':'tool','tool_call_id':query_id,'content':canonical(query)}]
+                append({'kind':'interaction','action_id':query_id,'messages':pair,'operation_id':None})
+                self.messages.extend(pair)
+                if not query['ok']:
+                    raise ValueError('unknown operation retained after failed query')
+                if query['data']['committed']:
+                    result = dict(ok=True,data=query['data']['result'],error=None,meta=query['meta'])
+                else:
+                    if self.prior_usage['tool_calls']>=self.budget.tool_calls or base_elapsed+time.monotonic()-recovery_started>=self.budget.wall_seconds:
+                        raise ValueError('no remaining recovery retry budget')
+                    append(dict(action,kind='action_start',retry_same_key=True))
+                    self.prior_usage['tool_calls'] += 1
+                    result = self.call(action['tool'],action['arguments'],action['operation_id'])
+                    if result.get('error') and result['error']['code']=='IDEMPOTENCY_CONFLICT':
+                        raise ValueError('recovery request hash conflict; intent retained')
+                pair = [{'role':'assistant','tool_call':{'name':action['tool'],'arguments':action['arguments'],'id':action_id}}, {'role':'tool','tool_call_id':action_id,'content':canonical(result)}]
+                append({'kind':'interaction','action_id':action_id,'messages':pair,'operation_id':action['operation_id'],'reconciled':True})
+                self.messages.extend(pair)
+                status = self.journal.db.execute('SELECT status FROM write_intents WHERE operation_id=?',(action['operation_id'],)).fetchone()
+                if status and status[0]=='PREPARED':
+                    self.journal.acknowledge(action['operation_id'],result,reconciled=True)
+                del self.pending_actions[action_id]
 
     def run(self):
+        if self.pending_actions:
+            raise ValueError('unresolved actions require reconcile_pending before continuing')
         started = time.monotonic()
-        calls = generated = inputs = failures = 0
+        if Path(self.trace_path).exists() and Path(self.trace_path).stat().st_size and not self.restored:
+            raise ValueError('existing trace requires explicit restore')
+        calls,generated,inputs = (self.prior_usage[key] for key in ('tool_calls','generated_tokens','input_tokens'))
+        failures = self.parse_failures
         self.state = 'RUNNING'
         with open(self.trace_path,'a') as trace:
             def log(item):
+                item = dict(item,elapsed_wall_seconds=self.prior_usage['wall_seconds']+time.monotonic()-started)
                 trace.write(canonical(item)+'\n')
                 trace.flush()
+                os.fsync(trace.fileno())
+            if not self.restored:
+                log({'kind':'run_header','task_sha256':hashlib.sha256(canonical(self.task).encode()).hexdigest(),'budget':asdict(self.budget),'mode':'full' if self.journal else 'simple','model_version':getattr(self.policy,'model_version',None),'initial_messages':self.messages,'tool_schemas':tool_schemas()})
             while True:
                 remaining = dict(tool_calls=self.budget.tool_calls-calls, generated_tokens=self.budget.generated_tokens-generated,
-                                 wall_seconds=self.budget.wall_seconds-(time.monotonic()-started))
+                                 wall_seconds=self.budget.wall_seconds-self.prior_usage['wall_seconds']-(time.monotonic()-started))
                 if any(value <= 0 for value in remaining.values()):
                     self.state = 'BUDGET_STOP'
                     break
@@ -53,11 +165,20 @@ class Harness:
                     if self.context_manager:
                         from .context import ContextOverflow
                         try:
+                            if hasattr(self.context_manager,'set_budget'):
+                                self.context_manager.set_budget(remaining)
                             model_messages,context_info = self.context_manager.prepare(self.messages,tool_schemas())
                         except ContextOverflow:
                             self.state = 'CONTEXT_OVERFLOW'
                             break
                         log({'kind':'context_selection',**context_info})
+                        generated += context_info.get('summary_output_tokens',0)
+                        inputs += context_info.get('summary_input_tokens',0)
+                        remaining['generated_tokens'] = self.budget.generated_tokens-generated
+                        remaining['wall_seconds'] = self.budget.wall_seconds-self.prior_usage['wall_seconds']-(time.monotonic()-started)
+                        if remaining['generated_tokens']<=0 or remaining['wall_seconds']<=0:
+                            self.state = 'BUDGET_STOP'
+                            break
                     turn = self.policy.generate(model_messages,tool_schemas(),remaining)
                 except Exception as exc:
                     log({'kind':'infrastructure_error','error_type':type(exc).__name__})
@@ -68,37 +189,41 @@ class Harness:
                 generated += turn.output_tokens
                 inputs += turn.input_tokens
                 log({'kind':'model_response','tool':turn.tool,'arguments':turn.arguments,'raw':turn.raw,'input_tokens':turn.input_tokens,'output_tokens':turn.output_tokens})
-                if generated > self.budget.generated_tokens or time.monotonic()-started >= self.budget.wall_seconds:
+                if generated > self.budget.generated_tokens or self.prior_usage['wall_seconds']+time.monotonic()-started >= self.budget.wall_seconds:
                     self.state = 'BUDGET_STOP'
                     break
                 if not isinstance(turn.tool,str) or not isinstance(turn.arguments,dict):
                     failures += 1
+                    message = {'role':'user','content':'Return one valid tool call with object arguments.'}
+                    log({'kind':'parse_failure','consecutive_failures':failures,'message':message if failures<=self.budget.parse_retries else None})
                     if failures > self.budget.parse_retries:
                         self.state = 'PARSE_ERROR'
                         break
-                    self.messages.append({'role':'user','content':'Return one valid tool call with object arguments.'})
+                    self.messages.append(message)
                     continue
                 failures = 0
                 operation = self.journal.prepare(turn.tool,turn.arguments) if self.journal and turn.tool in WRITES else uuid.uuid4().hex if turn.tool in WRITES else None
+                action_id = uuid.uuid4().hex
+                log({'kind':'action_start','action_id':action_id,'tool':turn.tool,'arguments':turn.arguments,'operation_id':operation})
+                calls += 1
                 try:
                     result = self.call(turn.tool,turn.arguments,operation)
                 except Exception as exc:
                     log({'kind':'infrastructure_error','error_type':type(exc).__name__,'operation_id':operation})
                     self.state = 'INFRA_ERROR'
                     break
-                calls += 1
                 if self.journal and turn.tool in WRITES:
                     self.journal.acknowledge(operation,result)
                 pair = [{'role':'assistant','tool_call':{'name':turn.tool,'arguments':turn.arguments,'id':str(calls)}},
                         {'role':'tool','tool_call_id':str(calls),'content':canonical(result)}]
                 self.messages.extend(pair)
-                log({'kind':'interaction','messages':pair,'operation_id':operation})
+                log({'kind':'interaction','messages':pair,'operation_id':operation,'action_id':action_id})
                 if turn.tool == 'task.finish' and result['ok']:
                     self.state = 'DECLARED_DONE'
                     break
                 if result.get('error') and result['error']['code']=='BUDGET_EXHAUSTED':
                     self.state = 'BUDGET_STOP'
                     break
-            summary = dict(state=self.state,tool_calls=calls,generated_tokens=generated,input_tokens=inputs,wall_seconds=time.monotonic()-started)
+            summary = dict(state=self.state,tool_calls=calls,generated_tokens=generated,input_tokens=inputs,wall_seconds=self.prior_usage['wall_seconds']+time.monotonic()-started)
             log({'kind':'termination',**summary})
             return summary

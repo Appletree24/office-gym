@@ -60,7 +60,7 @@ def process_due(client):
             db.execute('INSERT INTO meeting_history VALUES (?,?,?)',(meeting['id'],after['version'],canonical(after)))
             db.execute("UPDATE approvals SET status='invalidated' WHERE meeting_id=? AND status IN ('pending','granted')",(meeting['id'],))
             object_type,object_id = 'meeting',meeting['id']
-            payload = {'meeting_id':meeting['id'],'meeting_version':after['version'],'participant_ids':participants}
+            payload = {'meeting_id':meeting['id'],'meeting_version':after['version'],'participant_ids':participants,**({'approver_id':payload['approver_id']} if 'approver_id' in payload else {})}
         if kind == 'DocumentVersionPublished':
             document = db.execute('SELECT * FROM documents WHERE document_id=? ORDER BY version DESC LIMIT 1', (payload['document_id'],)).fetchone()
             if not document or document['version'] != payload['expected_version']:
@@ -121,6 +121,11 @@ def process_due(client):
                         meeting['end_at'] <= rule.get('latest_end', meeting['end_at']))
             conflicts = db.execute("SELECT 1 FROM meetings WHERE id!=? AND status!='cancelled' AND start_at<? AND end_at>? AND (organizer_id=? OR EXISTS (SELECT 1 FROM json_each(participant_ids_json) WHERE value=?))",
                 (meeting['id'],meeting['end_at'],meeting['start_at'],approval['approver_id'],approval['approver_id'])).fetchone()
+            for requirement in rule.get('required_preparation',[]):
+                todos = db.execute("SELECT * FROM todos WHERE source_meeting_id=? AND status='done' AND updated_at<=?",(meeting['id'],approval['requested_at'])).fetchall()
+                can_read_meeting = approval['approver_id']==meeting['organizer_id'] or approval['approver_id'] in json.loads(meeting['participant_ids_json'])
+                satisfied = any((can_read_meeting or todo['assignee_id']==approval['approver_id']) and all(todo[key]==value for key,value in requirement.items()) for todo in todos)
+                accepted = accepted and satisfied
             accepted = accepted and not conflicts
             status = 'granted' if accepted else 'rejected'
             db.execute('UPDATE approvals SET status=?,resolved_at=?,resolution_event_id=? WHERE id=?', (status,row['due_at'],row['id'],approval['id']))

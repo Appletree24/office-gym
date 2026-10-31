@@ -30,7 +30,62 @@ def main():
     reference = commands.add_parser('reference',help='Re-execute public reference solutions and verify final hashes')
     reference.add_argument('--manifest',required=True)
     reference.add_argument('--out',default='artifacts/reference_replay')
+    mcp = commands.add_parser('serve-mcp',help='Official MCP stdio adapter to running world service')
+    mcp.add_argument('--socket',required=True)
+    single = commands.add_parser('evaluate-instance',help='Run one configured local model episode with finite budgets')
+    single.add_argument('--instance',required=True)
+    single.add_argument('--config',required=True)
+    single.add_argument('--out',required=True)
+    sft = commands.add_parser('build-sft',help='Build audited assistant-only training samples')
+    sft.add_argument('--runs',required=True)
+    sft.add_argument('--out',required=True)
+    sft.add_argument('--tokenizer',required=True)
+    sft.add_argument('--revision',required=True)
+    sft.add_argument('--max-length',type=int,default=8192)
+    sft.add_argument('--reject-compacted',action='store_true',default=True)
+    sft.add_argument('--verify-masks',action='store_true',default=True)
+    teacher = commands.add_parser('collect-teacher',help='Collect finite-budget training demonstrations')
+    teacher.add_argument('--manifest',required=True)
+    teacher.add_argument('--config',required=True)
+    teacher.add_argument('--out',required=True)
+    teacher.add_argument('--split',choices=['train'],default='train')
+    teacher.add_argument('--max-attempts-per-task',type=int,default=3)
+    teacher.add_argument('--max-episodes',type=int,required=True)
+    teacher.add_argument('--max-generated-tokens',type=int,required=True)
+    batch = commands.add_parser('evaluate',help='Evaluate selected runs from a hashed plan')
+    batch.add_argument('--manifest',required=True)
+    batch.add_argument('--plan',required=True)
+    batch.add_argument('--config',required=True)
+    batch.add_argument('--out',required=True)
+    batch.add_argument('--experiment',required=True)
+    batch.add_argument('--split',required=True)
+    batch.add_argument('--resume',action='store_true')
+    batch.add_argument('--max-runs',type=int,required=True)
+    batch.add_argument('--max-generated-tokens',type=int,required=True)
+    train = commands.add_parser('train-sft',help='Run locked TRL SFT on verified pretokenized data')
+    train.add_argument('--config',required=True)
+    train.add_argument('--data',required=True)
+    train.add_argument('--out',required=True)
     args = parser.parse_args()
+    if args.command == 'train-sft':
+        from officegym.training.sft import train
+        print(json.dumps(train(args.config,args.data,args.out),indent=2))
+    if args.command == 'evaluate':
+        from officegym.eval.batch import evaluate_batch
+        print(json.dumps(evaluate_batch(args.manifest,args.plan,args.config,args.out,group=args.experiment,split=args.split,max_runs=args.max_runs,max_generated_tokens=args.max_generated_tokens,resume=args.resume),indent=2))
+    if args.command == 'collect-teacher':
+        from officegym.training.collect import collect
+        print(json.dumps(collect(args.manifest,args.config,args.out,max_attempts_per_task=args.max_attempts_per_task,max_episodes=args.max_episodes,max_generated_tokens=args.max_generated_tokens),indent=2))
+    if args.command == 'build-sft':
+        from officegym.training.build import build_from_files
+        print(json.dumps(build_from_files(args.runs,args.out,args.tokenizer,args.revision,args.max_length),indent=2))
+    if args.command == 'evaluate-instance':
+        from officegym.eval.configured import evaluate_instance
+        print(json.dumps(evaluate_instance(args.instance,args.out,args.config),indent=2))
+    if args.command == 'serve-mcp':
+        import asyncio
+        from officegym.tools.mcp_server import run
+        asyncio.run(run(args.socket))
     if args.command == 'reference':
         from officegym.tasks.replay import reference_manifest
         print(json.dumps(reference_manifest(args.manifest,args.out),indent=2))

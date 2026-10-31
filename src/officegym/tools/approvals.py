@@ -37,4 +37,7 @@ def approvals(client, name, args):
         db.execute('INSERT INTO scheduled_events VALUES (?,?,?,?,?,?,?,?)',
             ('resolve_'+identity,now+delay,10,'ApprovalDecision',canonical({'meeting_id':meeting['id'],'meeting_version':meeting['version']}),
              canonical({'approval_id':identity,'rule':rule}),canonical(sorted(set([principal,args['approver_id']]))),'pending'))
+    from officegym.env.audit import append_mutation
+    after = dict(db.execute('SELECT * FROM approvals WHERE id=?',(identity,)).fetchone())
+    append_mutation(client,name,'approval',identity,meeting['version'],None,after,[principal,args['approver_id']])
     return {'approval_id':identity,'status':'pending','business_digest':meeting['business_digest']}
