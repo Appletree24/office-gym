@@ -26,7 +26,7 @@ def compatibility_hash(resolved):
 
 
 def validate_launch(config,smoke=False):
-    required = {'verl_commit','verl_checkout','locked_packages','resolved_upstream_config','resolved_upstream_sha256','command','max_updates','max_wall_seconds','max_rollout_tokens','starting_checkpoint_hash','reference_checkpoint_hash','group_size','rollout_contract','prepared_rollouts'}
+    required = {'verl_commit','verl_checkout','locked_packages','resolved_upstream_config','resolved_upstream_sha256','command','max_updates','max_wall_seconds','max_rollout_tokens','starting_checkpoint_hash','reference_checkpoint_hash','group_size','rollout_contract','prepared_rollouts','starting_checkpoint_path','starting_export'}
     if required-set(config):
         raise ValueError('missing locked launch fields: '+','.join(sorted(required-set(config))))
     if config['verl_commit']!=VERL_COMMIT:
@@ -42,6 +42,7 @@ def validate_launch(config,smoke=False):
         raise ValueError('smoke launch limited to five updates')
     if config['starting_checkpoint_hash']!=config['reference_checkpoint_hash'] or not config['starting_checkpoint_hash'] or config['starting_checkpoint_hash'].startswith('SET_'):
         raise ValueError('actor and reference must start from identical exported SFT')
+    if any(not Path(config[name]).is_absolute() for name in ('starting_checkpoint_path','starting_export')):raise ValueError('absolute admitted SFT source paths required')
     validate_rollout_contract(config['rollout_contract'],config['max_rollout_tokens'],config['starting_checkpoint_hash'])
     command = config['command']
     if not isinstance(command,list) or not command or any(not isinstance(arg,str) or not arg for arg in command):
@@ -59,7 +60,7 @@ def validate_launch(config,smoke=False):
             else:
                 values[name] = value
     flatten(resolved)
-    required_values = {'algorithm.adv_estimator':'grpo','actor_rollout_ref.rollout.n':config['group_size'],'trainer.total_training_steps':config['max_updates']}
+    required_values = {'algorithm.adv_estimator':'grpo','actor_rollout_ref.rollout.n':config['group_size'],'trainer.total_training_steps':config['max_updates'],'actor_rollout_ref.model.path':str(Path(config['starting_checkpoint_path']).resolve())}
     if any(values.get(key)!=value for key,value in required_values.items()):
         raise ValueError('resolved upstream algorithm/group/update budget mismatch')
     preparation = json.loads(Path(config['prepared_rollouts']).read_text())
@@ -74,6 +75,9 @@ def validate_launch(config,smoke=False):
             raise ValueError('complete rollout/update/export smoke evidence required')
         if report.get('compatibility_sha256')!=compatibility_hash(resolved):
             raise ValueError('training parameters differ from verified smoke config')
+    from .rs_sft import require_sft_source
+    source=require_sft_source(config['starting_checkpoint_path'],config['starting_export'])
+    if source['checkpoint_sha256']!=config['starting_checkpoint_hash']:raise ValueError('GRPO start differs from admitted SFT export')
     if command!=bound_command(upstream,config['resolved_upstream_sha256']):
         raise ValueError('command must execute the exact hashed upstream configuration')
     return command
@@ -122,6 +126,10 @@ def launch(config_path,out,smoke=False):
     (root/'launch_config.json').write_text(canonical(config)+'\n')
     resolved = load_resolved(config['resolved_upstream_config'],config['resolved_upstream_sha256'])
     (root/'resolved_upstream.json').write_text(canonical(resolved)+'\n')
+    if not smoke:
+        from .admission import admit_training
+        from .evidence import TrainingEvidence
+        admit_training(TrainingEvidence(root),stage='grpo',data_manifest=config['prepared_rollouts'],config=root/'launch_config.json')
     started = time.monotonic()
     with (root/'upstream.stdout.log').open('w') as stdout, (root/'upstream.stderr.log').open('w') as stderr:
         status = execute_bounded(command,stdout,stderr,config['max_wall_seconds'])

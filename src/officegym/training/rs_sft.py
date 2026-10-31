@@ -13,8 +13,8 @@ def require_sft_source(checkpoint,export_path):
     actual=checkpoint_fingerprint(checkpoint)['checkpoint_sha256']
     if record.get('stage')!='sft' or record.get('checkpoint_sha256')!=actual:
         raise ValueError('RS-SFT must branch from the unchanged exported SFT checkpoint')
-    if not record.get('equivalence_report_sha256'):
-        raise ValueError('SFT export equivalence provenance required')
+    from .checkpoints import verify_export_admission
+    verify_export_admission(record)
     return record
 
 

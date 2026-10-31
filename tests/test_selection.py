@@ -7,6 +7,7 @@ from officegym.eval.selection import freeze,select
 from officegym.eval.plan import freeze_plan
 from officegym.training.checkpoints import checkpoint_fingerprint,record_export
 from officegym.training.evidence import TrainingEvidence
+from lineage_fixtures import admit_fixture
 
 
 class SelectionTests(unittest.TestCase):
@@ -15,6 +16,7 @@ class SelectionTests(unittest.TestCase):
         freeze_plan(plan,root/'plan.jsonl')
         candidates=[];files={}
         evidence=TrainingEvidence(root)
+        admission=admit_fixture(root,evidence)
         for index,step in enumerate((10,5)):
             checkpoint=root/('checkpoint'+str(index));checkpoint.mkdir()
             (checkpoint/'config.json').write_text('{}')
@@ -24,7 +26,7 @@ class SelectionTests(unittest.TestCase):
             inventory=evidence.checkpoint(checkpoint,step)
             equivalence=root/('equivalence'+str(index)+'.json')
             equivalence.write_text(json.dumps(dict(passed=True,checks=['authored-fixture-not-real-equivalence'],exported_checkpoint_sha256=fingerprint,source_checkpoint_files_sha256=inventory['checkpoint_files_sha256'],optimizer_step=step)))
-            record_export(checkpoint,export,stage='sft',parent_hash='fixture',training_manifest_hash='fixture',versions={},equivalence_report=equivalence,training_events=root/'training_events.jsonl',source_checkpoint=checkpoint,optimizer_step=step)
+            record_export(checkpoint,export,stage='sft',parent_hash=admission['parent_checkpoint_sha256'],training_manifest_hash=admission['data_manifest']['sha256'],versions={},equivalence_report=equivalence,training_events=root/'training_events.jsonl',source_checkpoint=checkpoint,optimizer_step=step)
             candidates.append(dict(candidate_id=str(index),optimizer_step=step,checkpoint=str(checkpoint),export_record=str(export)))
             results=[]
             for planned in plan:

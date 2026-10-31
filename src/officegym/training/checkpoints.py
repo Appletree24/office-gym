@@ -29,6 +29,10 @@ def record_export(checkpoint,out,*,stage,parent_hash,training_manifest_hash,vers
         raise ValueError('unknown checkpoint stage')
     if stage!='base' and (not parent_hash or not training_manifest_hash):
         raise ValueError('training checkpoint lineage missing')
+    source=None
+    if stage!='base':
+        if training_events is None or source_checkpoint is None:raise ValueError('saved training checkpoint evidence required')
+        source=bind_formal_training_source(training_events,source_checkpoint,optimizer_step,stage,parent_hash,training_manifest_hash)
     if not equivalence_report or not Path(equivalence_report).is_file():
         raise ValueError('export equivalence report required')
     report_path = Path(equivalence_report)
@@ -38,15 +42,11 @@ def record_export(checkpoint,out,*,stage,parent_hash,training_manifest_hash,vers
     fingerprint=checkpoint_fingerprint(checkpoint)
     if report.get('exported_checkpoint_sha256')!=fingerprint['checkpoint_sha256']:
         raise ValueError('equivalence report does not bind exported checkpoint contents')
-    source=None
     if stage!='base':
-        if training_events is None or source_checkpoint is None:
-            raise ValueError('saved training checkpoint evidence required')
-        source=bind_training_source(training_events,source_checkpoint,optimizer_step)
         if report.get('source_checkpoint_files_sha256')!=source['source_checkpoint_files_sha256'] or report.get('optimizer_step')!=optimizer_step:
             raise ValueError('equivalence report differs from training checkpoint source')
-    record = dict(fingerprint,export_record_version='checkpoint-export-v2-training-source',training_source=source,stage=stage,parent_hash=parent_hash,training_manifest_hash=training_manifest_hash,versions=versions,
-                  equivalence_report_sha256=hashlib.sha256(report_path.read_bytes()).hexdigest())
+    record = dict(fingerprint,checkpoint_path=str(Path(checkpoint).resolve()),export_record_version='checkpoint-export-v3-formal-admission',training_source=source,stage=stage,parent_hash=parent_hash,training_manifest_hash=training_manifest_hash,versions=versions,
+                  equivalence_report=str(report_path.resolve()),equivalence_report_sha256=hashlib.sha256(report_path.read_bytes()).hexdigest())
     with Path(out).open('x') as stream:
         stream.write(canonical(record)+'\n')
     return record
@@ -55,6 +55,9 @@ def record_export(checkpoint,out,*,stage,parent_hash,training_manifest_hash,vers
 def validate_branches(sft,grpo_start,reference,rs_start):
     if sft.get('stage')!='sft':
         raise ValueError('branch point must be exported SFT checkpoint')
+    for record in (sft,grpo_start,reference,rs_start):
+        if record.get('stage')!='sft':raise ValueError('all branch starts must be admitted SFT exports')
+        verify_export_admission(record)
     target = sft['checkpoint_sha256']
     if any(record['checkpoint_sha256']!=target for record in (grpo_start,reference,rs_start)):
         raise ValueError('GRPO actor/reference and RS-SFT must share identical SFT checkpoint')
@@ -84,8 +87,44 @@ def bind_training_source(events_path,checkpoint,optimizer_step):
     raise ValueError('no saved checkpoint event at the claimed optimizer step')
 
 
+def bind_formal_training_source(events_path,checkpoint,optimizer_step,stage,parent_hash,manifest_hash):
+    from .admission import validate_admission
+    if type(optimizer_step) is not int or optimizer_step<1:raise ValueError('formal export requires positive optimizer step')
+    with Path(events_path).open('rb') as stream:
+        line=stream.readline()
+    header=json.loads(line) if line else {}
+    if header.get('kind')!='training_admission' or header.get('optimizer_step')!=0:
+        raise ValueError('formal training admission missing; backend probes cannot become formal exports')
+    payload=validate_admission(header.get('payload',{}))
+    if optimizer_step>payload['max_optimizer_steps']:raise ValueError('claimed optimizer step exceeds admitted budget')
+    if payload['stage']!=stage or payload['parent_checkpoint_sha256']!=parent_hash or payload['data_manifest']['sha256']!=manifest_hash:
+        raise ValueError('export lineage differs from admitted training stage/parent/data')
+    source=bind_training_source(events_path,checkpoint,optimizer_step)
+    if not Path(checkpoint).resolve().is_relative_to(Path(events_path).resolve().parent):raise ValueError('formal checkpoint escapes admitted training run')
+    return dict(source,admission=payload)
+
+
+def verify_export_admission(record):
+    from .admission import digest
+    if record.get('export_record_version')!='checkpoint-export-v3-formal-admission' or not record.get('training_source',{}).get('admission'):
+        raise ValueError('formal export admission provenance required')
+    if checkpoint_fingerprint(record['checkpoint_path'])['checkpoint_sha256']!=record['checkpoint_sha256']:raise ValueError('formal exported checkpoint changed')
+    source=record['training_source']
+    current=bind_formal_training_source(source['events_path'],source['source_checkpoint'],source['optimizer_step'],record['stage'],record['parent_hash'],record['training_manifest_hash'])
+    if current!=source:raise ValueError('formal export training admission changed')
+    path=Path(record['equivalence_report'])
+    if not path.is_absolute() or digest(path)!=record['equivalence_report_sha256']:raise ValueError('formal export equivalence evidence changed')
+    report=json.loads(path.read_text())
+    if report.get('passed') is not True or report.get('exported_checkpoint_sha256')!=record['checkpoint_sha256'] or report.get('source_checkpoint_files_sha256')!=source['source_checkpoint_files_sha256'] or report.get('optimizer_step')!=source['optimizer_step']:
+        raise ValueError('formal export equivalence identity changed')
+    return source['optimizer_step']
+
+
 def verify_training_source(source):
-    current=bind_training_source(source['events_path'],source['source_checkpoint'],source['optimizer_step'])
+    if source.get('admission'):
+        admitted=source['admission']
+        current=bind_formal_training_source(source['events_path'],source['source_checkpoint'],source['optimizer_step'],admitted['stage'],admitted['parent_checkpoint_sha256'],admitted['data_manifest']['sha256'])
+    else:current=bind_training_source(source['events_path'],source['source_checkpoint'],source['optimizer_step'])
     if current!=source:
         raise ValueError('checkpoint training evidence changed')
     return current['optimizer_step']

@@ -31,6 +31,7 @@ def validate_plan(plan,data_dir):
     if not isinstance(plan['locked_packages'],dict) or not {'torch','transformers','trl','peft','datasets'}<=set(plan['locked_packages']):
         raise ValueError('complete training dependency lock required')
     manifest = json.loads((Path(data_dir)/'manifest.json').read_text())
+    if manifest.get('kind')!='sft_dataset_not_training_result':raise ValueError('admitted SFT dataset kind required')
     if manifest.get('manual_alignment_review_status')!='passed' or not manifest['accepted']:
         raise ValueError('nonempty dataset and completed manual mask review required')
     require_current_scoring(manifest)
@@ -104,10 +105,14 @@ def train(plan_path,data_dir,out):
     tokenizer = AutoTokenizer.from_pretrained(plan['model_path'],revision=plan['model_revision'],local_files_only=True,trust_remote_code=False)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
-    rows = [json.loads(line) for line in (Path(data_dir)/'samples.jsonl').read_text().splitlines()]
+    payload=(Path(data_dir)/'samples.jsonl').read_bytes()
+    if hashlib.sha256(payload).hexdigest()!=manifest['samples_sha256']:raise ValueError('training data changed before materialization')
+    rows = [json.loads(line) for line in payload.splitlines()]
     validate_samples(rows,plan['max_sequence_tokens'])
     started = time.monotonic()
     evidence=TrainingEvidence(root)
+    from .admission import admit_training
+    admit_training(evidence,stage=plan.get('training_branch','sft'),data_manifest=Path(data_dir)/'manifest.json',config=root/'resolved_train_config.json')
     class WallBudget(TrainerCallback):
         def on_step_end(self,args,state,control,**kwargs):
             if time.monotonic()-started>=plan['max_wall_seconds']:

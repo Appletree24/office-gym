@@ -32,6 +32,10 @@ class LaunchTests(unittest.TestCase):
             upstream = Path(directory)/'resolved.json'
             upstream.write_text(json.dumps({'algorithm':{'adv_estimator':'grpo'},'actor_rollout_ref':{'rollout':{'n':4}},'trainer':{'total_training_steps':5}}))
             config = dict(verl_commit=VERL_COMMIT,verl_checkout=directory,locked_packages={},resolved_upstream_config=str(upstream),resolved_upstream_sha256=hashlib.sha256(upstream.read_bytes()).hexdigest(),command=['python','verified_entrypoint.py'],max_updates=5,max_wall_seconds=60,max_rollout_tokens=1000,starting_checkpoint_hash='sft_hash',reference_checkpoint_hash='sft_hash',group_size=4,rollout_contract=dict(token_ledger_path=str(Path(directory)/'tokens.sqlite'),artifact_root=directory,global_rollout_token_limit=1000,max_generation_tokens=100,max_context_tokens=8192,max_tool_calls=24,actor_version='sft_hash'))
+            from lineage_fixtures import exported_sft_fixture
+            checkpoint,export,record=exported_sft_fixture(Path(directory)/'sft_source')
+            config.update(starting_checkpoint_path=str(checkpoint),starting_export=str(export),starting_checkpoint_hash=record['checkpoint_sha256'],reference_checkpoint_hash=record['checkpoint_sha256'])
+            config['rollout_contract']['actor_version']=record['checkpoint_sha256']
             from officegym.tasks.generate import generate
             from officegym.training.prepare_rl import prepare
             tasks=Path(directory)/'tasks'
@@ -43,12 +47,21 @@ class LaunchTests(unittest.TestCase):
             preparation=Path(directory)/'prepared'/'preparation.json'
             config['prepared_rollouts'] = str(preparation)
             resolved = json.loads(upstream.read_text())
+            resolved['actor_rollout_ref']['model']={'path':str(checkpoint)}
             resolved['data'] = dict(train_files=[str(train)])
             resolved['actor_rollout_ref']['rollout'].update(agent={'agent_loop_config_path':plugins['agent_loop']['path']},multi_turn={'tool_config_path':plugins['tools']['path']})
             upstream.write_text(json.dumps(resolved))
             config['resolved_upstream_sha256'] = hashlib.sha256(upstream.read_bytes()).hexdigest()
             config['command'] = bound_command(upstream,config['resolved_upstream_sha256'])
             self.assertEqual(validate_launch(config,smoke=True),config['command'])
+            resolved['actor_rollout_ref']['model']['path']='/another/model'
+            upstream.write_text(json.dumps(resolved));config['resolved_upstream_sha256']=hashlib.sha256(upstream.read_bytes()).hexdigest()
+            config['command']=bound_command(upstream,config['resolved_upstream_sha256'])
+            with self.assertRaisesRegex(ValueError,'algorithm/group/update'):
+                validate_launch(config,smoke=True)
+            resolved['actor_rollout_ref']['model']['path']=str(checkpoint)
+            upstream.write_text(json.dumps(resolved));config['resolved_upstream_sha256']=hashlib.sha256(upstream.read_bytes()).hexdigest()
+            config['command']=bound_command(upstream,config['resolved_upstream_sha256'])
             config['command'] = ['python','another_entrypoint.py']
             with self.assertRaisesRegex(ValueError,'command must execute'):
                 validate_launch(config,smoke=True)

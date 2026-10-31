@@ -38,6 +38,6 @@ class ScoringVersionTests(unittest.TestCase):
             plan=dict(model_path=directory,model_revision='locked',max_steps=1,checkpoint_interval_steps=1,max_wall_seconds=60,
                       locked_packages={name:'locked' for name in ('torch','transformers','trl','peft','datasets')},
                       max_sequence_tokens=8192,micro_batch_size=1,gradient_accumulation_steps=1,learning_rate=0.0001,lora={})
-            (root/'manifest.json').write_text(json.dumps(dict(manual_alignment_review_status='passed',accepted=[{}])))
+            (root/'manifest.json').write_text(json.dumps(dict(kind='sft_dataset_not_training_result',manual_alignment_review_status='passed',accepted=[{}])))
             with self.assertRaisesRegex(ValueError,'stale or missing scoring'):
                 validate_plan(plan,root)

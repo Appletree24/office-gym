@@ -16,7 +16,11 @@ class CheckpointTests(unittest.TestCase):
             self.assertNotEqual(original['checkpoint_sha256'],changed['checkpoint_sha256'])
 
     def test_rs_sft_cannot_start_after_grpo(self):
-        sft = {'stage':'sft','checkpoint_sha256':'sft_hash'}
-        self.assertEqual(validate_branches(sft,sft,sft,sft),'sft_hash')
-        with self.assertRaises(ValueError):
-            validate_branches(sft,sft,sft,{'stage':'grpo','checkpoint_sha256':'grpo_hash'})
+        from lineage_fixtures import exported_sft_fixture
+        with tempfile.TemporaryDirectory() as directory:
+            _,_,sft=exported_sft_fixture(Path(directory))
+            self.assertEqual(validate_branches(sft,sft,sft,sft),sft['checkpoint_sha256'])
+            with self.assertRaises(ValueError):
+                validate_branches(sft,sft,sft,dict(sft,stage='grpo'))
+            with self.assertRaises(ValueError):
+                validate_branches({'stage':'sft','checkpoint_sha256':'unverified'},sft,sft,sft)

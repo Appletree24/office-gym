@@ -3,7 +3,7 @@ import hashlib
 import json
 from pathlib import Path
 from officegym.env.world import canonical
-from officegym.training.checkpoints import checkpoint_fingerprint,verify_training_source
+from officegym.training.checkpoints import checkpoint_fingerprint,verify_training_source,verify_export_admission
 from .analysis import validate_row,VERSION_FIELDS,TASK_FIELDS
 from .plan import missing_runs
 
@@ -53,6 +53,7 @@ def freeze(candidates,plan_path,group,out):
         fingerprint=checkpoint_fingerprint(checkpoint)['checkpoint_sha256']
         if record.get('stage')!=stages[group] or record.get('checkpoint_sha256')!=fingerprint or not record.get('equivalence_report_sha256'):
             raise ValueError('candidate must be an equivalence-verified export of the selected stage')
+        verify_export_admission(record)
         if not record.get('training_source') or verify_training_source(record['training_source'])!=step:
             raise ValueError('candidate optimizer step differs from saved training evidence')
         bound.append(dict(candidate_id=candidate['candidate_id'],optimizer_step=step,checkpoint=str(checkpoint),checkpoint_sha256=fingerprint,export_record=str(export),export_sha256=digest(export)))
@@ -86,6 +87,7 @@ def select(rule_path,result_files,out):
         if digest(candidate['export_record'])!=candidate['export_sha256'] or checkpoint_fingerprint(candidate['checkpoint'])['checkpoint_sha256']!=candidate['checkpoint_sha256']:
             raise ValueError('checkpoint candidate changed after freeze')
         exported=json.loads(Path(candidate['export_record']).read_text())
+        verify_export_admission(exported)
         if verify_training_source(exported['training_source'])!=candidate['optimizer_step']:
             raise ValueError('candidate optimizer step differs from saved training evidence')
         path=Path(result_files[candidate['candidate_id']]).resolve()
