@@ -26,3 +26,5 @@ officegym probe-reference --out /tmp/officegym-reference-new
 ```
 
 核心运行时只依赖标准库；MCP 使用 `python -m pip install '.[mcp]'`。SQL 和工具契约随 wheel 发布，仓库中的 `schema/*.sql` 与 `contracts/tools.json` 是包内资源的符号链接。wheel 已在隔离环境、仓库外验证参考探针及持久化 journal。训练和推理依赖仍须按手册在各自环境中锁定并通过真实 smoke test。
+
+RS-SFT 分支提供 `python -m officegym.training.rs_sft collect --help` 和 `build --help`：前者要求原始 SFT merged checkpoint、导出记录、完整 Harness 采样配置和明确的采样上限；后者复用成功轨迹筛选与真实 tokenizer 对齐流程。继续训练使用现有 `train-sft`，计划中设置 `training_branch: rs_sft`，`model_path` 必须仍指向同一原始 SFT checkpoint。GRPO 阶段、不同权重或不一致分支标签会被拒绝。当前已验证分支约束，尚无真实 RS-SFT 采样或训练结果。

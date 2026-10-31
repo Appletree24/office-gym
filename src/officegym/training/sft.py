@@ -32,6 +32,16 @@ def validate_plan(plan,data_dir):
     require_current_scoring(manifest)
     if manifest.get('harness_version')!=HARNESS_VERSION:
         raise ValueError('stale or missing SFT source harness version')
+    branch=plan.get('training_branch','sft')
+    if branch not in ('sft','rs_sft'):
+        raise ValueError('unknown SFT training branch')
+    if branch=='rs_sft' or manifest.get('training_branch')=='rs_sft':
+        if branch!='rs_sft' or manifest.get('training_branch')!='rs_sft':
+            raise ValueError('RS-SFT plan and dataset branch must match')
+        from .rs_sft import require_sft_source
+        source=require_sft_source(plan['model_path'],manifest['source_export'])
+        if source['checkpoint_sha256']!=manifest['starting_checkpoint_sha256'] or hashlib.sha256(Path(manifest['source_export']).read_bytes()).hexdigest()!=manifest['source_export_sha256']:
+            raise ValueError('RS-SFT optimizer source differs from sampling branch')
     samples = Path(data_dir)/'samples.jsonl'
     if hashlib.sha256(samples.read_bytes()).hexdigest()!=manifest['samples_sha256']:
         raise ValueError('SFT sample hash mismatch')
@@ -63,6 +73,7 @@ def train(plan_path,data_dir,out):
     root = Path(out)
     root.mkdir(parents=True,exist_ok=False)
     (root/'resolved_train_config.json').write_text(canonical(plan)+'\n')
+    (root/'training_data_manifest.json').write_text(canonical(manifest)+'\n')
     tokenizer = AutoTokenizer.from_pretrained(plan['model_path'],revision=plan['model_revision'],local_files_only=True,trust_remote_code=False)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -90,7 +101,7 @@ def train(plan_path,data_dir,out):
     result = trainer.train()
     trainer.save_model(str(root/'adapter'))
     tokenizer.save_pretrained(root/'adapter')
-    report = dict(metrics=result.metrics,optimizer_steps=trainer.state.global_step,wall_seconds=time.monotonic()-started,peak_allocated_bytes=torch.cuda.max_memory_allocated() if torch.cuda.is_available() else None,
+    report = dict(training_branch=plan.get('training_branch','sft'),starting_checkpoint_sha256=manifest.get('starting_checkpoint_sha256'),metrics=result.metrics,optimizer_steps=trainer.state.global_step,wall_seconds=time.monotonic()-started,peak_allocated_bytes=torch.cuda.max_memory_allocated() if torch.cuda.is_available() else None,
                   dataset_samples_sha256=manifest['samples_sha256'],export_equivalence_status='pending',dev_evaluation_status='pending')
     (root/'train_result.json').write_text(canonical(report)+'\n')
     return report
