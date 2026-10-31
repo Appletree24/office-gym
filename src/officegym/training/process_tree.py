@@ -86,17 +86,24 @@ def supervise(plan_path,result_path):
     return result
 
 
-def execute_tree_bounded(command,stdout,stderr,max_wall_seconds,*,evidence_dir):
+def execute_tree_bounded(command,stdout,stderr,max_wall_seconds,*,evidence_dir,monitor=None,env=None):
     if type(max_wall_seconds) not in (int,float) or not math.isfinite(max_wall_seconds) or max_wall_seconds<=0:raise ValueError('finite process-tree wall budget required')
     root=Path(evidence_dir).resolve();root.mkdir(parents=True,exist_ok=False)
     plan=root/'plan.json';write_json(plan,dict(command=command,max_wall_seconds=max_wall_seconds,parent_pid=os.getpid()))
     result_path=root/'result.json'
-    supervisor=subprocess.Popen([sys.executable,'-m','officegym.training.process_tree','--plan',str(plan),'--result',str(result_path)],stdout=stdout,stderr=stderr,start_new_session=True)
+    supervisor=subprocess.Popen([sys.executable,'-m','officegym.training.process_tree','--plan',str(plan),'--result',str(result_path)],stdout=stdout,stderr=stderr,start_new_session=True,env=env)
     write_json(root/'supervisor.json',dict(pid=supervisor.pid))
     try:
         # An observation overrun requests cancellation; it does not kill the
         # trusted reaper and abandon descendants.
-        try:supervisor.wait(timeout=max_wall_seconds+CLEANUP_SECONDS+15)
+        try:
+            deadline=time.monotonic()+max_wall_seconds+CLEANUP_SECONDS+15
+            while supervisor.poll() is None:
+                if monitor is not None:monitor(supervisor.pid)
+                remaining=deadline-time.monotonic()
+                if remaining<=0:raise subprocess.TimeoutExpired(supervisor.args,max_wall_seconds)
+                try:supervisor.wait(timeout=min(.25,remaining))
+                except subprocess.TimeoutExpired:pass
         except subprocess.TimeoutExpired:
             supervisor.terminate();supervisor.wait(timeout=CLEANUP_SECONDS+15)
     finally:

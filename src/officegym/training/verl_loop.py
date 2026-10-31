@@ -33,6 +33,7 @@ class OfficeGymAgentLoop(ToolAgentLoop):
         self._generation_uncertain = False
         self._invalid_tool_batch = False
         self._context_response_limit = False
+        self._turn_limit_reached = False
         ledger = TokenLedger(trusted['token_ledger_path'],trusted['global_rollout_token_limit'])
         try:
             ledger.reserve(trajectory,actor,trusted['max_generation_tokens'])
@@ -52,7 +53,7 @@ class OfficeGymAgentLoop(ToolAgentLoop):
             output = await super().run(sampling_params,priority=priority,**kwargs)
             if output.response_logprobs is None:
                 raise ValueError('native rollout logprobs required; enable backend reporting')
-            reason = ('invalid_tool_batch' if self._invalid_tool_batch else 'generation_budget' if self._generation_budget.stopped else 'response_limit' if self._context_response_limit or len(output.response_ids)>=self.response_length else 'policy_terminated')
+            reason = ('invalid_tool_batch' if self._invalid_tool_batch else 'generation_budget' if self._generation_budget.stopped else 'response_limit' if self._context_response_limit or len(output.response_ids)>=self.response_length else 'agent_turn_limit' if self._turn_limit_reached else 'policy_terminated')
             terminal = REGISTRY.finalize(trajectory,input_ids=output.response_ids,response_mask=output.response_mask,
                                          token_roles=['assistant' if bit else 'tool' for bit in output.response_mask],
                                          logprobs=output.response_logprobs,actor_version=actor,termination_reason=reason)
@@ -92,6 +93,9 @@ class OfficeGymAgentLoop(ToolAgentLoop):
         return result
 
     async def _handle_generating_state(self,agent_data,sampling_params,ignore_termination=False):
+        if (self.max_assistant_turns and agent_data.assistant_turns>=self.max_assistant_turns) or (self.max_user_turns and agent_data.user_turns>=self.max_user_turns):
+            self._turn_limit_reached=True
+            return AgentState.TERMINATED
         requested = sampling_params.get('max_tokens',self.response_length)
         remaining=self.response_length-len(agent_data.response_mask)
         if remaining<=0:
@@ -105,6 +109,8 @@ class OfficeGymAgentLoop(ToolAgentLoop):
         state = await super()._handle_generating_state(agent_data,{**sampling_params,'max_tokens':cap},ignore_termination=ignore_termination)
         self._generation_budget.record(len(agent_data.response_ids),cap)
         self._generation_uncertain = False
+        if state==AgentState.TERMINATED and ((self.max_assistant_turns and agent_data.assistant_turns>=self.max_assistant_turns) or (self.max_user_turns and agent_data.user_turns>=self.max_user_turns)):
+            self._turn_limit_reached=True
         return state
 
     async def _call_tool(self,tool_call,tools_kwargs,agent_data):

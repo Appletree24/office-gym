@@ -32,7 +32,7 @@ class RLEnvironmentTests(unittest.TestCase):
             root=Path(directory)
             manifest=generate(root/'tasks',templates=['T01'],count_per_template=1,split='train')
             source=root/'tasks'/manifest['instances'][0]['path']
-            for reason in ('policy_terminated','response_limit','generation_budget','invalid_tool_batch'):
+            for reason in ('policy_terminated','response_limit','generation_budget','invalid_tool_batch','agent_turn_limit'):
                 archive=root/reason
                 with RolloutEnvironment(source,actor_version='fixture',artifact_dir=archive) as environment:
                     solve(environment.public_task,lambda name,args,operation=None:environment.call(name,args))

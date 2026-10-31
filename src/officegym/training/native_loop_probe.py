@@ -48,9 +48,9 @@ async def run(instance,model,out):
             probs=[-.25-i*.001 for i in range(len(ids))]
             self.calls.append(dict(prompt_ids=list(kwargs['prompt_ids']),token_ids=ids,log_probs=probs,sampling_params=kwargs['sampling_params']))
             return TokenOutput(token_ids=ids,log_probs=probs)
-    async def case(name,texts,*,response=4096,prompt=8192,context=8192,barrier=None,reject=False,cap_outputs=False):
+    async def case(name,texts,*,response=4096,prompt=8192,context=8192,barrier=None,reject=False,cap_outputs=False,assistant_turns=30,user_turns=30):
         case_root=root/name;case_root.mkdir()
-        config=OmegaConf.create(dict(data={},actor_rollout_ref=dict(rollout=dict(prompt_length=prompt,response_length=response,full_determinism=False,multi_turn=dict(max_user_turns=30,max_assistant_turns=30,max_parallel_calls=1,max_tool_response_length=20000,tool_response_truncate_side='right',format='hermes')))))
+        config=OmegaConf.create(dict(data={},actor_rollout_ref=dict(rollout=dict(prompt_length=prompt,response_length=response,full_determinism=False,multi_turn=dict(max_user_turns=user_turns,max_assistant_turns=assistant_turns,max_parallel_calls=1,max_tool_response_length=20000,tool_response_truncate_side='right',format='hermes')))))
         server=Server(texts,barrier,cap_outputs)
         loop=OfficeGymAgentLoop(trainer_config=DictConfigWrap(config),server_manager=server,tokenizer=tokenizer,processor=None,dataset_cls=object,data_config=DictConfigWrap(config.data),hf_model_type='qwen3',tools=ToolListWrap(tools))
         trusted=dict(actor_version='authored-native-protocol-fixture',max_generation_tokens=512,max_context_tokens=context,token_ledger_path=str(case_root/'tokens.sqlite'),global_rollout_token_limit=512,instance_dir=str(instance),artifact_root=str(case_root/'trajectories'))
@@ -100,6 +100,10 @@ async def run(instance,model,out):
     assert rows[-1]['termination_reason']=='generation_budget' and rows[-1]['generation_requests']==1
     rows.append(await case('parallel_calls',[call.replace('<|im_end|>','')+call]))
     assert rows[-1]['termination_reason']=='invalid_tool_batch'
+    rows.append(await case('assistant_turn_limit',[call],assistant_turns=1))
+    assert rows[-1]['termination_reason']=='agent_turn_limit' and rows[-1]['generation_requests']==1
+    rows.append(await case('user_turn_limit',[call],user_turns=1))
+    assert rows[-1]['termination_reason']=='agent_turn_limit' and rows[-1]['generation_requests']==1
     assert not REGISTRY.entries
     assert hashlib.sha256((instance/'initial_world.sqlite').read_bytes()).hexdigest()==before
     local_hashes={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in (Path(__file__),Path(__file__).with_name('verl_loop.py'),Path(__file__).with_name('worker_plugins.py'))}

@@ -69,7 +69,7 @@ class RolloutEnvironment:
     def finalize(self,*,input_ids,response_mask,token_roles,logprobs,actor_version,termination_reason='policy_terminated'):
         if self.closed or self._graded or actor_version!=self.actor_version:
             raise ValueError('rollout lifecycle or actor version mismatch')
-        if termination_reason not in ('policy_terminated','response_limit','generation_budget','invalid_tool_batch'):
+        if termination_reason not in ('policy_terminated','response_limit','generation_budget','invalid_tool_batch','agent_turn_limit'):
             raise ValueError('unknown rollout termination reason')
         validate_rollout(input_ids,response_mask,token_roles,logprobs)
         domain_grade = evaluate(self._path,self._spec,self._initial)

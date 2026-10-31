@@ -38,3 +38,16 @@ class ProcessTreeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             result=self.run_job(Path(directory),"import subprocess,sys,os,signal; subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)'],start_new_session=True); os.kill(os.getpid(),signal.SIGKILL)",5)
             self.assertEqual(result['exit_code'],-9);self.assertFalse(result['wall_budget_exhausted']);self.assertTrue(result['process_tree_cleanup'])
+
+    def test_watchdog_failure_requests_owned_cleanup_before_propagating(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);ready=root/'ready'
+            code="import subprocess,sys,time; from pathlib import Path; subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)'],start_new_session=True); Path(sys.argv[1]).touch(); time.sleep(30)"
+            def monitor(pid):
+                if ready.exists():raise RuntimeError('test watchdog budget')
+            with (root/'stdout').open('w') as out,(root/'stderr').open('w') as err:
+                with self.assertRaisesRegex(RuntimeError,'test watchdog budget'):
+                    execute_tree_bounded([sys.executable,'-c',code,str(ready)],out,err,10,evidence_dir=root/'ownership',monitor=monitor)
+            result=json.loads((root/'ownership/result.json').read_text())
+            self.assertTrue(result['process_tree_cleanup']);self.assertFalse(result['remaining'])
+            self.assertIn(15,result['cancelled_signals']);self.assertGreaterEqual(len(result['reaped']),2)

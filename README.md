@@ -118,4 +118,15 @@ PYTHONPATH=src .venv-rl/bin/python -m officegym.training.native_loop_probe \
   --out artifacts/NEW_NATIVE_PROTOCOL
 ```
 
-该入口运行真实上游 AgentLoop、tokenizer、工具和评分器，但生成端提供人工 token/logprob，不是模型 rollout。它验证并发世界隔离、原始 IDs/mask/logprob 保留、容量拒绝与资源释放，限时 180 秒；当前 v4 的八项检查通过。正式 GRPO、actor/reference 与权重同步验收仍待完成，详见 IMPLEMENTATION_STATUS.md。
+该入口运行真实上游 AgentLoop、tokenizer、工具和评分器，但生成端提供人工 token/logprob，不是模型 rollout。它验证并发世界隔离、原始 IDs/mask/logprob 保留、容量拒绝与资源释放，限时 180 秒；当前 v5 的十项检查通过。正式 GRPO、actor/reference 与权重同步验收仍待完成，详见 IMPLEMENTATION_STATUS.md。
+
+新 RL 环境中的真实基模/vLLM 原始 token 接入探针：
+
+```bash
+PYTHONPATH=src .venv-rl/bin/python -m officegym.training.native_inference_probe \
+  --fetch-root artifacts/qwen3_4b_base_cdbee75_v1 \
+  --instance artifacts/dataset_development_v10/train_atomic/T01_100000 \
+  --out artifacts/NEW_NATIVE_MODEL_PROBE
+```
+
+要求 GPU 空闲，限时 600 秒／36 GiB 显存／2 GiB 产物；最多两条轨迹、十次生成、1,024 个生成 token，无付费 API。当前 v2 完成十次真实生成，原始 IDs/logprobs 与 mask 对齐，两条轨迹均在诊断轮次上限结束、奖励为零。它不运行 Ray rollout server、参数更新或正式 GRPO，也不证明 worker 文件系统隔离。
