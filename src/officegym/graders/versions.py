@@ -1,6 +1,6 @@
 """Shared grader/reward identities; evidence fixes invalidate prior scoring."""
-EVAL_GRADER_VERSION = 'eval-v2-reply-evidence'
-REWARD_VERSION = 'reward-v2-reply-evidence'
+EVAL_GRADER_VERSION = 'eval-v3-creation-scope'
+REWARD_VERSION = 'reward-v3-creation-scope'
 
 
 def require_current_scoring(record):

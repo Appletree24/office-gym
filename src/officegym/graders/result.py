@@ -4,6 +4,7 @@ import json
 import sqlite3
 from pathlib import Path
 from .replies import availability_replies
+from .creation_scope import unexpected_creations
 
 
 def evaluate(world_path, spec, initial_path=None):
@@ -58,6 +59,8 @@ def evaluate(world_path, spec, initial_path=None):
             meeting_required = final_participants.get(meeting['id'],required)
             if meeting['status'] == 'cancelled' or set(json.loads(meeting['participant_ids_json'])) != meeting_required:
                 continue
+            if 'title' in spec and meeting['title']!=spec['title']:
+                continue
             start,end = meeting['start_at'], meeting['end_at']
             window = spec['allowed_window_utc']
             if start < window[0] or end > window[1] or end-start != spec.get('duration_seconds',1800):
@@ -99,6 +102,9 @@ def evaluate(world_path, spec, initial_path=None):
             failures.append('monitoring_incomplete')
         if not candidates:
             failures.append('no_valid_invited_meeting')
+        elif len(candidates)>1:
+            failures.append('multiple_valid_task_meetings')
+            severe.append('extra_task_meeting')
         if spec.get('requires_approval'):
             for invitation in invitations:
                 history = db.execute('SELECT snapshot_json FROM meeting_history WHERE meeting_id=? AND version=?',(invitation['meeting_id'],invitation['meeting_version'])).fetchone()
@@ -150,6 +156,7 @@ def evaluate(world_path, spec, initial_path=None):
                         current = db.execute(query,values).fetchone()
                         if not current or dict(current) != dict(original):
                             unexpected.append({'table':table,'id':original[identity]})
+                unexpected.extend(unexpected_creations(db,initial,spec))
             finally:
                 initial.close()
             if unexpected:
