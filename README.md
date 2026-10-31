@@ -148,3 +148,14 @@ PYTHONPATH=src .venv-rl/bin/python scripts/probe_native_effective_groups.py \
 ```
 
 该探针使用真实 DataProto 与固定上游 `fit`，奖励和后端为明确标注的人工构造，限时 180 秒。当前 v5 验证了四倍候选上限、同版本补采样、零方差组跳过且不推进更新计数、有效组原始 token 保留和重复轨迹拒绝。它没有执行真实 optimizer／KL 或证明物理权重同步；完整联训验收仍待完成。
+
+使用真实上游 Ray server／负载均衡器／原生客户端的同一探针：
+
+```bash
+PYTHONPATH=src .venv-rl/bin/python -m officegym.training.native_inference_probe \
+  --backend ray --fetch-root artifacts/qwen3_4b_base_cdbee75_v1 \
+  --instance artifacts/dataset_development_v10/train_atomic/T01_100000 \
+  --out artifacts/NEW_NATIVE_RAY_PROBE
+```
+
+当前 `native_ray_vllm_loop_probe_v1` 完成十次真实生成，独立 token 审计通过，HTTP 认证检查为 401／200，结束后 GPU 空闲。仍使用固定基模、standalone 模式和声明的第 0 步标签；不证明训练权重同步、KL、optimizer 更新或 worker 文件系统隔离。上限与 direct 探针相同，Ray 日志也计入产物预算，无付费 API。

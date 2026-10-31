@@ -11,5 +11,6 @@
   "verl/workers/rollout/llm_server.py": "a31a51faf3bc7a877628eff52917cb442b1d3e17ae5249a7f3cdbc9282a45e96",
   "verl/workers/rollout/vllm_rollout/vllm_async_server.py": "32f1e3bc6fa1bccc7082a0a6901e12a713974dcf78f48129957cfea3679b21ac",
   "verl/workers/rollout/vllm_rollout/vllm_rollout.py": "e82e1c6782573e03c871b982eb0653801f54cb1647367a604aa8b1c5454773cb",
-  "verl/checkpoint_engine/base.py": "97b51131a5770892007b7fb07264a2657fe83255b085927acd08c952a5682f64"
+  "verl/checkpoint_engine/base.py": "97b51131a5770892007b7fb07264a2657fe83255b085927acd08c952a5682f64",
+  "verl/workers/rollout/router.py": "3c6f74df9fdaea7d1b6c71f0994ef70d47f951035cd61df77db719e815be9263"
 }
