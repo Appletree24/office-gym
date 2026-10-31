@@ -31,3 +31,11 @@ class PromptTokenizerTests(unittest.TestCase):
         for key in ('tokenize','chat_template'):
             with self.subTest(key=key),self.assertRaises(ValueError):
                 PromptTokenizer(Tokenizer(),model_revision='revision',template_kwargs={key:False})
+
+    def test_new_transformers_default_mapping_does_not_change_flat_id_contract(self):
+        class Tokenizer:
+            chat_template='fixture'
+            def apply_chat_template(self,messages,**kwargs):
+                return {'input_ids':[1,2]} if kwargs.get('return_dict',True) else [1,2]
+        counter=PromptTokenizer(Tokenizer(),model_revision='fixture')
+        self.assertEqual(counter.token_ids([{'role':'user','content':'fixture'}],[]),[1,2])

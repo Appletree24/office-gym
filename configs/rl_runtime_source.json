@@ -1,0 +1,32 @@
+{
+  "kind": "resolved_rl_runtime_source_recipe_not_training_result",
+  "python": "3.12",
+  "archive_lock": "requirements-rl.lock",
+  "source_repository": "https://github.com/volcengine/verl.git",
+  "source_revision": "8df5baeed0f5ecdd7f870d83bc3d79194816e2a9",
+  "source_version": "0.10.0.dev0",
+  "source_install": "pip install --no-deps --no-build-isolation -e ABSOLUTE_VERL_CHECKOUT",
+  "bootstrap": [
+    {
+      "name": "setuptools",
+      "version": "80.9.0",
+      "sha256": "062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922"
+    },
+    {
+      "name": "wheel",
+      "version": "0.45.1",
+      "sha256": "708e7481cc80179af0e556bbf0cc00b8444c7321e2700b8d8580231d13017248"
+    }
+  ],
+  "runtime_install": "pip install --require-hashes --no-build-isolation -r requirements-rl.lock",
+  "source_builds": [
+    "antlr4-python3-runtime==4.9.3",
+    "pylatexenc==2.10"
+  ],
+  "upstream_numpy_constraint_deviation": {
+    "upstream": "2.4.6",
+    "resolved": "2.3.5",
+    "reason": "mistral-common requires numpy<2.4 on Python3.12"
+  },
+  "critical_source_lock": "src/officegym/training/verl_checkpoint_sources.json"
+}

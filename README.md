@@ -106,3 +106,5 @@ ChatPolicy 默认 `tool_choice=auto`，使用模型原生工具格式；配置�
 正式训练现在先记录 formal-training-admission-v1，绑定准入数据、实际样本、解析后的配置、父权重、阶段和优化器步数上限。正式导出使用 checkpoint-export-v3-formal-admission；选模、RS-SFT 分叉和分支校验都会重新检查来源文件。后端探针仍可做数值诊断，但缺少准入事件的真实 checkpoint-2 已确认无法登记为正式 SFT。GRPO 也必须实际加载声明的已验收 SFT 路径；原生 verl checkpoint 事件与运行时验证仍待完成。
 
 verl 保存事件桥接已实现，绑定固定 commit 的 8 个源码哈希，要求 `trainer.use_v1=false`、同步保存、保留全部 checkpoint，以及 run 内的绝对输出路径。首版每个训练步只允许一个 mini-batch／PPO epoch，并核对有限梯度和独立更新计数，避免把 global_steps 直接当成优化器调用次数。控制器测试已验证完整分片记录和缺失分片拒绝；测试 worker 是明确标注的 CPU fixture，尚不代表真实 FSDP/GRPO 验收。具体必需字段见 configs/grpo_plan.json 的 intent 合同和 IMPLEMENTATION_STATUS.md。
+
+现代 RL 环境单独位于 .venv-rl（Torch 2.13/CUDA 13、Transformers 5.16、vLLM 0.32），依赖与源码配方见 requirements-rl.lock、configs/rl_runtime_source.json；旧服务／SFT 环境保持不变。真实单 GPU FSDP2 保存恢复探针：`PYTHONPATH=src .venv-rl/bin/python -m officegym.training.fsdp_probe --fetch-root artifacts/qwen3_4b_base_cdbee75_v1 --checkout artifacts/verl_checkout_v1/repo --out artifacts/NEW_FSDP_PROBE`。v3 实测 4B 权重完成原生 checkpoint 保存、故意扰动、恢复及下一步更新，恢复分支与未中断分支逐字节一致（44.14s）。这是两条手写协议样本上的后端连续性验证，尚非真实 GRPO 或正式训练结论。

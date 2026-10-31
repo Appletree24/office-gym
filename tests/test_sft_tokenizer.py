@@ -9,7 +9,7 @@ class SFTTokenizerTests(unittest.TestCase):
             corrupt = False
             def apply_chat_template(self,messages,**kwargs):
                 ids = list(range(len(messages)*2))
-                if kwargs.get('return_dict'):
+                if kwargs.get('return_dict',True):
                     mask = [int(message['role']=='assistant' or self.corrupt) for message in messages for _ in range(2)]
                     return {'input_ids':ids,'assistant_masks':mask}
                 return ids
@@ -32,7 +32,7 @@ class SFTTokenizerTests(unittest.TestCase):
                 if not kwargs['tokenize']:
                     return 'changed' if kwargs.get('chat_template') and self.corrupt_text else 'same authored rendering'
                 ids=list(range(len(messages)*2))
-                if kwargs.get('return_dict'):
+                if kwargs.get('return_dict',True):
                     return dict(input_ids=[99]+ids[1:] if self.corrupt_ids else ids,assistant_masks=[int(m['role']=='assistant') for m in messages for _ in range(2)])
                 return ids
         messages=[dict(role='user',content='task'),dict(role='assistant',content='answer')]

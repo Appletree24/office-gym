@@ -35,12 +35,12 @@ class SFTTokenizer:
         ids,mask = encoded['input_ids'],encoded.get('assistant_masks')
         if not isinstance(ids,list) or not isinstance(mask,list) or len(ids)!=len(mask):
             raise RejectedTrajectory('template_missing_assistant_mask')
-        if self.mask_template and ids!=self.tokenizer.apply_chat_template(rendered,tools=schemas,tokenize=True,add_generation_prompt=False,**self.kwargs):
+        if self.mask_template and ids!=self.tokenizer.apply_chat_template(rendered,tools=schemas,tokenize=True,add_generation_prompt=False,return_dict=False,**self.kwargs):
             raise RejectedTrajectory('mask_annotation_changed_token_ids')
         roles = ['template']*len(ids)
         previous = 0
         for index,message in enumerate(rendered):
-            prefix = self.tokenizer.apply_chat_template(rendered[:index+1],tools=schemas,tokenize=True,add_generation_prompt=False,**self.kwargs)
+            prefix = self.tokenizer.apply_chat_template(rendered[:index+1],tools=schemas,tokenize=True,add_generation_prompt=False,return_dict=False,**self.kwargs)
             if not isinstance(prefix,list) or len(prefix)<previous or prefix!=ids[:len(prefix)]:
                 raise RejectedTrajectory('template_prefix_not_token_stable')
             for position in range(previous,len(prefix)):
@@ -52,7 +52,7 @@ class SFTTokenizer:
         # Every assistant message must actually supply a supervised span.
         previous = 0
         for index,message in enumerate(rendered):
-            prefix = self.tokenizer.apply_chat_template(rendered[:index+1],tools=schemas,tokenize=True,add_generation_prompt=False,**self.kwargs)
+            prefix = self.tokenizer.apply_chat_template(rendered[:index+1],tools=schemas,tokenize=True,add_generation_prompt=False,return_dict=False,**self.kwargs)
             if message['role']=='assistant' and not any(mask[previous:len(prefix)]):
                 raise RejectedTrajectory('assistant_message_has_no_loss')
             previous = len(prefix)

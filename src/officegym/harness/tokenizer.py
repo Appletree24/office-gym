@@ -25,7 +25,7 @@ class PromptTokenizer:
 
     def token_ids(self,messages,schemas):
         tools = [{'type':'function','function':{'name':tool['name'],'description':tool['description'],'parameters':tool['inputSchema']}} for tool in schemas]
-        ids = self.tokenizer.apply_chat_template(render_template_messages(messages),tools=tools,tokenize=True,add_generation_prompt=True,**self.template_kwargs)
+        ids = self.tokenizer.apply_chat_template(render_template_messages(messages),tools=tools,tokenize=True,add_generation_prompt=True,return_dict=False,**self.template_kwargs)
         if not isinstance(ids,list) or any(type(token) is not int for token in ids):
             raise ValueError('tokenizer must return one original flat ID sequence')
         return ids
