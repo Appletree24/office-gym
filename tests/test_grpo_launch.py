@@ -47,8 +47,13 @@ class LaunchTests(unittest.TestCase):
             preparation=Path(directory)/'prepared'/'preparation.json'
             config['prepared_rollouts'] = str(preparation)
             resolved = json.loads(upstream.read_text())
+            from lineage_fixtures import checkpoint_profile
+            profile=checkpoint_profile(Path(directory)/'run')
+            profile['trainer']['officegym_verl_checkout']=directory
+            resolved['trainer'].update(profile['trainer'])
+            resolved['actor_rollout_ref']['actor']=profile['actor_rollout_ref']['actor']
             resolved['actor_rollout_ref']['model']={'path':str(checkpoint)}
-            resolved['data'] = dict(train_files=[str(train)])
+            resolved['data'] = dict(train_files=[str(train)],train_batch_size=2)
             resolved['actor_rollout_ref']['rollout'].update(agent={'agent_loop_config_path':plugins['agent_loop']['path']},multi_turn={'tool_config_path':plugins['tools']['path']})
             upstream.write_text(json.dumps(resolved))
             config['resolved_upstream_sha256'] = hashlib.sha256(upstream.read_bytes()).hexdigest()

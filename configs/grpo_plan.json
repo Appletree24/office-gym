@@ -32,5 +32,22 @@
     "severe_violation": -1,
     "soft_rules_enabled": false,
     "milestones_enabled": false
+  },
+  "native_checkpoint_contract": {
+    "trainer_use_v1": false,
+    "ppo_epochs": 1,
+    "ppo_mini_batch_size": "MATCH_data.train_batch_size",
+    "async_save": false,
+    "save_contents": [
+      "model",
+      "optimizer",
+      "extra"
+    ],
+    "retain_all_checkpoints": true,
+    "resume_mode": "disable",
+    "evidence_root": "ABSOLUTE_LAUNCH_OUTPUT",
+    "checkpoint_directory": "EVIDENCE_ROOT/checkpoints",
+    "verl_checkout": "ABSOLUTE_PINNED_VERL_CHECKOUT",
+    "source_lock": "officegym/training/verl_checkpoint_sources.json"
   }
 }

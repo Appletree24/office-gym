@@ -104,3 +104,5 @@ ChatPolicy 默认 `tool_choice=auto`，使用模型原生工具格式；配置�
 数值报告现为 numeric-v2：保存可用标准库重算的原始 JSON logits／token IDs，工具等价门禁不再直接信任 `passed` 或最大误差字段。显式 `logit_rtol` 默认 0；启用时按每个 reference logit 计算 `atol + rtol*abs(reference)`，可配真实禁用 adapter 的负对照。有界复测入口：`PYTHONPATH=src .venv-train/bin/python -m officegym.training.numeric_probe --plan FROZEN_PLAN.json --out NEW_DIRECTORY`。新三项输入的前瞻性 FP32 检查有两项通过、四个 logit 超限，整体仍未通过；CPU 原始数据复算与负对照验证均已完成。旧失败记录不变，正式导出门禁仍关闭。
 
 正式训练现在先记录 formal-training-admission-v1，绑定准入数据、实际样本、解析后的配置、父权重、阶段和优化器步数上限。正式导出使用 checkpoint-export-v3-formal-admission；选模、RS-SFT 分叉和分支校验都会重新检查来源文件。后端探针仍可做数值诊断，但缺少准入事件的真实 checkpoint-2 已确认无法登记为正式 SFT。GRPO 也必须实际加载声明的已验收 SFT 路径；原生 verl checkpoint 事件与运行时验证仍待完成。
+
+verl 保存事件桥接已实现，绑定固定 commit 的 8 个源码哈希，要求 `trainer.use_v1=false`、同步保存、保留全部 checkpoint，以及 run 内的绝对输出路径。首版每个训练步只允许一个 mini-batch／PPO epoch，并核对有限梯度和独立更新计数，避免把 global_steps 直接当成优化器调用次数。控制器测试已验证完整分片记录和缺失分片拒绝；测试 worker 是明确标注的 CPU fixture，尚不代表真实 FSDP/GRPO 验收。具体必需字段见 configs/grpo_plan.json 的 intent 合同和 IMPLEMENTATION_STATUS.md。

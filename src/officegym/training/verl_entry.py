@@ -41,10 +41,8 @@ def main():
     args=parser.parse_args()
     resolved=load_resolved(args.config,args.sha256)
     from omegaconf import OmegaConf
-    from verl.trainer.main_ppo import main as upstream_main
-    # Pinned main's unwrapped function retains device/config validation and
-    # task-runner selection, without composing defaults or accepting overrides.
-    upstream_main.__wrapped__(OmegaConf.create(resolved))
+    from .verl_checkpoint import run_upstream
+    run_upstream(OmegaConf.create(resolved))
 
 
 if __name__=='__main__':

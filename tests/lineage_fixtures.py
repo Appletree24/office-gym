@@ -26,3 +26,8 @@ def exported_sft_fixture(root):
     report=root/'equivalence.json';report.write_text(json.dumps(dict(passed=True,checks=['authored-unit-fixture-only'],exported_checkpoint_sha256=checkpoint_fingerprint(checkpoint)['checkpoint_sha256'],source_checkpoint_files_sha256=source['checkpoint_files_sha256'],optimizer_step=1)))
     path=root/'export.json';record=record_export(checkpoint,path,stage='sft',parent_hash=admission['parent_checkpoint_sha256'],training_manifest_hash=admission['data_manifest']['sha256'],versions={},equivalence_report=report,training_events=root/'training_events.jsonl',source_checkpoint=checkpoint,optimizer_step=1)
     return checkpoint,path,record
+
+
+def checkpoint_profile(root,maximum=5):
+    root=Path(root).resolve()
+    return dict(data={'train_batch_size':2},trainer=dict(total_training_steps=maximum,use_v1=False,save_freq=1,officegym_evidence_root=str(root),default_local_dir=str(root/'checkpoints'),officegym_verl_checkout=str(root/'verl'),resume_mode='disable'),actor_rollout_ref=dict(rollout={'n':2},actor=dict(strategy='fsdp',ppo_epochs=1,ppo_mini_batch_size=2,checkpoint=dict(async_save=False,save_contents=['model','optimizer','extra']))))

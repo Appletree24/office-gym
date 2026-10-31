@@ -100,8 +100,31 @@ def bind_formal_training_source(events_path,checkpoint,optimizer_step,stage,pare
     if payload['stage']!=stage or payload['parent_checkpoint_sha256']!=parent_hash or payload['data_manifest']['sha256']!=manifest_hash:
         raise ValueError('export lineage differs from admitted training stage/parent/data')
     source=bind_training_source(events_path,checkpoint,optimizer_step)
+    if stage=='grpo':
+        verify_grpo_source_lock(events_path,source['prefix_bytes'])
+        verify_grpo_updates(events_path,source['prefix_bytes'],optimizer_step)
     if not Path(checkpoint).resolve().is_relative_to(Path(events_path).resolve().parent):raise ValueError('formal checkpoint escapes admitted training run')
     return dict(source,admission=payload)
+
+
+def verify_grpo_source_lock(events_path,prefix_bytes):
+    from .verl_checkpoint import SOURCE_HASHES
+    records=list(map(json.loads,Path(events_path).read_bytes()[:prefix_bytes].splitlines()))
+    locks=[row for row in records if row.get('kind')=='backend_source_lock']
+    if len(locks)!=1 or locks[0].get('optimizer_step')!=0 or locks[0].get('payload')!=SOURCE_HASHES:
+        raise ValueError('GRPO source lacks the pinned native controller source lock')
+    return dict(SOURCE_HASHES)
+
+
+def verify_grpo_updates(events_path,prefix_bytes,optimizer_step):
+    from math import isfinite
+    prefix=Path(events_path).read_bytes()[:prefix_bytes]
+    updates=[row for row in map(json.loads,prefix.splitlines()) if row.get('kind')=='optimizer_update']
+    if [r['optimizer_step'] for r in updates]!=list(range(1,optimizer_step+1)):raise ValueError('GRPO source lacks complete optimizer-update evidence')
+    for row in updates:
+        proof=row['payload'];norms=proof.get('gradient_norms')
+        if proof.get('native_global_step')!=row['optimizer_step'] or proof.get('contract')!='single-mini-batch-epoch' or not isinstance(norms,list) or not norms or any(type(v) not in (int,float) or not isfinite(v) or v<0 for v in norms):raise ValueError('invalid GRPO optimizer-update evidence')
+    return optimizer_step
 
 
 def verify_export_admission(record):

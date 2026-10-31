@@ -1,6 +1,7 @@
 """Append-only training curves and content-addressed saved-checkpoint inventory."""
 import hashlib
 import math
+import numbers
 import os
 import time
 from pathlib import Path
@@ -9,8 +10,11 @@ from officegym.eval.artifacts import write_json
 
 
 def finite_logs(value):
-    if isinstance(value,float) and not math.isfinite(value):
-        return {'non_finite':str(value)}
+    if type(value) is bool:return value
+    if isinstance(value,numbers.Integral) and type(value) is not bool:return int(value)
+    if isinstance(value,numbers.Real):
+        number=float(value)
+        return number if math.isfinite(number) else {'non_finite':str(number)}
     if isinstance(value,dict):
         return {key:finite_logs(item) for key,item in value.items()}
     if isinstance(value,(list,tuple)):

@@ -51,6 +51,9 @@ def validate_launch(config,smoke=False):
     if not upstream.is_file() or hashlib.sha256(upstream.read_bytes()).hexdigest()!=config['resolved_upstream_sha256']:
         raise ValueError('resolved upstream configuration hash mismatch')
     resolved = load_resolved(upstream,config['resolved_upstream_sha256'])
+    from .verl_checkpoint import validate_profile
+    validate_profile(resolved)
+    if Path(resolved['trainer']['officegym_verl_checkout']).resolve()!=Path(config['verl_checkout']).resolve():raise ValueError('checkpoint source checkout differs from launch')
     values = {}
     def flatten(mapping,prefix=''):
         for key,value in mapping.items():
@@ -121,7 +124,11 @@ def launch(config_path,out,smoke=False):
     commit = subprocess.run(['git','-C',config['verl_checkout'],'rev-parse','HEAD'],capture_output=True,text=True,check=True).stdout.strip()
     if commit!=config['verl_commit']:
         raise ValueError('actual verl checkout differs from lock')
-    root = Path(out)
+    root = Path(out).resolve()
+    resolved=load_resolved(config['resolved_upstream_config'],config['resolved_upstream_sha256'])
+    if Path(resolved['trainer']['officegym_evidence_root']).resolve()!=root:raise ValueError('native evidence root differs from launch output')
+    from .verl_checkpoint import verify_sources
+    verify_sources(config['verl_checkout'])
     root.mkdir(parents=True,exist_ok=False)
     (root/'launch_config.json').write_text(canonical(config)+'\n')
     resolved = load_resolved(config['resolved_upstream_config'],config['resolved_upstream_sha256'])
