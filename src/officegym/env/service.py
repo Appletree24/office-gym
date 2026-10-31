@@ -14,7 +14,7 @@ from officegym.tools.schema import tool_schemas
 MAX_REQUEST = 1024 * 1024
 
 
-def serve(world_path, socket_path, max_calls=200):
+def serve(world_path, socket_path, max_calls=None):
     socket_path = Path(socket_path)
     if socket_path.exists():
         raise FileExistsError(socket_path)

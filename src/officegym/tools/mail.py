@@ -39,6 +39,12 @@ def mail(client, name, args):
             raise ToolError('NOT_FOUND')
         if person != principal and principal not in json.loads(row[0]) and '*' not in json.loads(row[0]):
             raise ToolError('PERMISSION_DENIED')
+    from .references import document_refs
+    attachments = args.get('attachment_refs',[])
+    document_refs(db, principal, attachments)
+    # References do not grant new document permissions to recipients.
+    for recipient in recipients:
+        document_refs(db, recipient, attachments)
     meeting_id, version = args.get('meeting_id'), args.get('meeting_version')
     body = args['body']
     if args['kind'] in ('invitation','reschedule'):

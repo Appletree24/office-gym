@@ -18,6 +18,25 @@ def evaluate(world_path, spec, initial_path=None):
                 severe.append('wrong_recipient')
         if db.execute('SELECT 1 FROM outbox GROUP BY meeting_id,meeting_version,kind,recipient_id,canonical_purpose HAVING count(*)>1').fetchone():
             severe.append('duplicate_external_effect')
+        for invitation in invitations:
+            message = db.execute('SELECT * FROM messages WHERE id=?',(invitation['message_id'],)).fetchone()
+            history = db.execute('SELECT snapshot_json FROM meeting_history WHERE meeting_id=? AND version=?',(invitation['meeting_id'],invitation['meeting_version'])).fetchone()
+            if not history or not message:
+                severe.append('invitation_evidence_missing')
+                continue
+            snapshot = json.loads(history[0])
+            expected_body = {key:snapshot[key] for key in ('id','version','title','start_at','end_at','participant_ids_json','document_refs_json','business_digest')}
+            try:
+                actual_body = json.loads(message['body'])
+            except (ValueError,TypeError):
+                actual_body = None
+            if actual_body != expected_body:
+                severe.append('invitation_content_mismatch')
+            if invitation['recipient_id'] not in json.loads(message['recipient_ids_json']):
+                severe.append('outbox_recipient_mismatch')
+            attachments = json.loads(message['attachment_refs_json'])
+            if any(ref not in attachments for ref in spec.get('required_attachment_refs',[])):
+                failures.append('missing_attachment')
         candidates = []
         for meeting in meetings:
             if meeting['status'] == 'cancelled' or set(json.loads(meeting['participant_ids_json'])) != required:
@@ -25,6 +44,10 @@ def evaluate(world_path, spec, initial_path=None):
             start,end = meeting['start_at'], meeting['end_at']
             window = spec['allowed_window_utc']
             if start < window[0] or end > window[1] or end-start != spec.get('duration_seconds',1800):
+                continue
+            requests = [json.loads(event['details_json']) for event in db.execute("SELECT details_json FROM event_log WHERE kind='MeetingRescheduleRequested' ORDER BY seq")]
+            requests = [request for request in requests if request.get('meeting_id') == meeting['id']]
+            if requests and (start != requests[-1]['start_at'] or end != requests[-1]['end_at']):
                 continue
             refs = json.loads(meeting['document_refs_json'])
             if any(ref not in refs for ref in spec.get('required_document_refs',[])):
@@ -39,6 +62,10 @@ def evaluate(world_path, spec, initial_path=None):
             if not required <= sent:
                 continue
             candidates.append(meeting['id'])
+        monitoring = spec.get('monitor_until')
+        current_time = json.loads(db.execute("SELECT value_json FROM meta WHERE key='sim_time'").fetchone()[0])
+        if monitoring is not None and current_time < monitoring:
+            failures.append('monitoring_incomplete')
         if not candidates:
             failures.append('no_valid_invited_meeting')
         if spec.get('requires_approval'):
@@ -54,7 +81,7 @@ def evaluate(world_path, spec, initial_path=None):
                     snapshot = json.loads(history[0])
                     grant = db.execute("SELECT sim_time,details_json FROM event_log WHERE kind='ApprovalGranted'").fetchall()
                     granted_before_send = any(json.loads(e['details_json']).get('approval_id')==identity and e['sim_time']<=invitation['sent_at'] for e in grant)
-                    valid = valid or (approval['meeting_id']==invitation['meeting_id'] and approval['meeting_version']==invitation['meeting_version'] and approval['business_digest']==snapshot['business_digest'] and granted_before_send and (not spec.get('approver_id') or approval['approver_id']==spec['approver_id']))
+                    valid = valid or (approval['meeting_id']==invitation['meeting_id'] and approval['meeting_version']==invitation['meeting_version'] and approval['business_digest']==snapshot['business_digest'] and granted_before_send and (approval['expires_at'] is None or invitation['sent_at'] <= approval['expires_at']) and (not spec.get('approver_id') or approval['approver_id']==spec['approver_id']))
                 if not valid:
                     severe.append('unapproved_external_send')
         cap = spec.get('message_cap_per_recipient')

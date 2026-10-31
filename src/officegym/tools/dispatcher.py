@@ -12,9 +12,19 @@ class ToolError(Exception):
 
 
 class Dispatcher:
-    def __init__(self, world, max_calls=200):
+    def __init__(self, world, max_calls=None):
         self.world = world
         self.db = world.db
+        stored = self.meta('max_tool_calls')
+        if max_calls is None:
+            max_calls = stored if stored is not None else 200
+        if type(max_calls) is not int or max_calls <= 0:
+            raise ValueError('max_calls must be a positive integer')
+        if stored is not None and stored != max_calls:
+            raise ValueError('episode tool budget is frozen; cannot change on restart')
+        if stored is None:
+            with self.db:
+                self.set_meta('max_tool_calls',max_calls)
         self.max_calls = max_calls
 
     def meta(self, key):

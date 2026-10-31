@@ -18,8 +18,10 @@ def next_visible(client, until):
 
 def process_due(client):
     db = client.db
-    rows = db.execute("SELECT * FROM scheduled_events WHERE status='pending' AND due_at<=? ORDER BY due_at,priority,id", (client.meta('sim_time'),)).fetchall()
-    for row in rows:
+    while True:
+        row = db.execute("SELECT * FROM scheduled_events WHERE status='pending' AND due_at<=? ORDER BY due_at,priority,id LIMIT 1", (client.meta('sim_time'),)).fetchone()
+        if row is None:
+            break
         pre = json.loads(row['preconditions_json'])
         payload = json.loads(row['payload_json'])
         valid = True
@@ -58,7 +60,26 @@ def process_due(client):
             if not meeting or meeting['status'] != 'scheduled' or meeting['end_at'] > row['due_at']:
                 db.execute("UPDATE scheduled_events SET status='cancelled' WHERE id=?", (row['id'],))
                 continue
+            before = dict(meeting)
             db.execute("UPDATE meetings SET status='completed',updated_at=? WHERE id=?", (row['due_at'],meeting['id']))
+            after = dict(meeting)
+            after.update(status='completed',updated_at=row['due_at'])
+            object_type,object_id = 'meeting',meeting['id']
+            rule = (client.meta('minutes_rules') or {}).get(meeting['id'])
+            if rule is None:
+                rule = (client.meta('minutes_rules') or {}).get('*')
+            if rule is not None:
+                delay = rule.get('delay_seconds',120)
+                if type(delay) is not int or delay < 1:
+                    raise ValueError('invalid trusted minutes delay')
+                db.execute('INSERT INTO scheduled_events VALUES (?,?,?,?,?,?,?,?)',
+                    ('minutes_'+row['id'],row['due_at']+delay,30,'MinutesAvailable',canonical({'meeting_id':meeting['id'],'meeting_version':meeting['version']}),
+                     canonical({'meeting_id':meeting['id'],'action_items':rule.get('action_items',[])}),row['visibility_json'],'pending'))
+        if kind == 'MinutesAvailable':
+            meeting = db.execute('SELECT * FROM meetings WHERE id=?', (payload['meeting_id'],)).fetchone()
+            if not meeting or meeting['status'] != 'completed':
+                db.execute("UPDATE scheduled_events SET status='cancelled' WHERE id=?", (row['id'],))
+                continue
         if kind == 'ApprovalDecision':
             approval = db.execute('SELECT * FROM approvals WHERE id=?', (payload['approval_id'],)).fetchone()
             if not approval or approval['status'] != 'pending':

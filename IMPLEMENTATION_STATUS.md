@@ -16,3 +16,9 @@ PYTHONPATH=src .venv/bin/python -m officegym.cli probe-reference --out artifacts
 ```
 
 Probe output directories must be fresh to preserve earlier evidence. Training/API budget fields in configs remain unfilled; null does not authorize unlimited spending.
+
+## Subsequent verified progress
+
+The implementation now includes bounded search/content pagination, structured delayed replies, immutable document publication, meeting completion and delayed minutes, public-tool reference follow-up and rescheduling, reference monitoring boundary handling, explicit document-reference permissions, independent invitation-content/attachment/approval checks, fixed episode call budgets across restarts, isolated WAL-safe rollout clones, labelled grader-case generation/runner, training trajectory/mask gates, bounded effective-group sampling, frozen run-plan primitives, and simple whole-turn context truncation.
+
+Current verification: 61 CPU tests pass. Three reference probe workflows were executed twice with matching state hashes in artifacts/reference_probe_v4. Real SIGKILL worker recovery with surviving world service was verified in artifacts/fault_probe_v2. Eight labelled software grader fixtures were run in artifacts/grader_report_v1 (2 legal, 6 negative, no label mismatch). These limited software checks do not establish full project completion or model performance. Broader template generation, full compression, official MCP integration, locked model/training backends, frozen real experiments and complete audit coverage remain outstanding.

@@ -20,6 +20,8 @@ class World:
         path = Path(path)
         if path.exists():
             raise FileExistsError(path)
+        if type(sim_time) is not int or type(deadline) is not int or not isinstance(principal_id,str) or not principal_id:
+            raise ValueError('invalid trusted episode configuration')
         if deadline < sim_time:
             raise ValueError('deadline precedes initial time')
         path.parent.mkdir(parents=True, exist_ok=True)

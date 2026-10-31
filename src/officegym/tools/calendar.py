@@ -43,6 +43,8 @@ def calendar(client, name, args):
                 meeting[{'participant_ids':'participant_ids_json', 'document_refs':'document_refs_json'}.get(key, key)] = canonical(value) if key in ('participant_ids', 'document_refs') else value
         meeting['version'] += 1
         meeting['updated_at'] = now
+    from .references import document_refs
+    document_refs(db, principal, json.loads(meeting['document_refs_json']))
     participants = json.loads(meeting['participant_ids_json'])
     if (not isinstance(meeting['title'], str) or not meeting['title'] or
         type(meeting['start_at']) is not int or type(meeting['end_at']) is not int or
