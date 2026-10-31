@@ -3,6 +3,6 @@ from importlib.resources import files
 
 
 def read_text(name):
-    if name not in ('world.sql','runtime.sql','tools.json'):
+    if name not in ('world.sql','runtime.sql','tools.json','run_result.schema.json'):
         raise ValueError('unknown OfficeGym runtime resource')
     return files(__package__).joinpath(name).read_text(encoding='utf-8')
