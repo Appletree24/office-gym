@@ -37,21 +37,29 @@ class TrainingEvidence:
         path=Path(path).resolve()
         if not path.is_relative_to(self.root) or not path.is_dir():
             raise ValueError('saved checkpoint must be inside training artifacts')
-        hashes={}
-        for file in sorted(path.rglob('*')):
-            if file.is_file():
-                if not file.resolve().is_relative_to(path):
-                    raise ValueError('saved checkpoint contains external symlink')
-                digest=hashlib.sha256()
-                with file.open('rb') as stream:
-                    for chunk in iter(lambda:stream.read(8*1024*1024),b''):
-                        digest.update(chunk)
-                hashes[str(file.relative_to(path))]=digest.hexdigest()
-        if not hashes or not any(name.endswith(('.safetensors','.bin')) for name in hashes):
-            raise ValueError('saved checkpoint has no model weights')
-        record=dict(path=str(path),files_sha256=hashes,checkpoint_files_sha256=hashlib.sha256(canonical(hashes).encode()).hexdigest())
+        record=checkpoint_inventory(path)
         self.event(kind,step,record)
         return record
 
     def history(self,records):
         write_json(self.root/'trainer_log_history.json',finite_logs(records))
+
+
+def checkpoint_inventory(path):
+    path=Path(path).resolve()
+    if not path.is_dir():
+        raise ValueError('source checkpoint directory missing')
+    hashes={}
+    for file in sorted(path.rglob('*')):
+        if file.is_file():
+            if not file.resolve().is_relative_to(path):
+                raise ValueError('saved checkpoint contains external symlink')
+            digest=hashlib.sha256()
+            with file.open('rb') as stream:
+                for chunk in iter(lambda:stream.read(8*1024*1024),b''):
+                    digest.update(chunk)
+            hashes[str(file.relative_to(path))]=digest.hexdigest()
+    if not hashes or not any(name.endswith(('.safetensors','.bin')) or (Path(name).name.startswith('model_world_size_') and name.endswith('.pt')) for name in hashes):
+        raise ValueError('saved checkpoint has no model weights')
+    record=dict(path=str(path),files_sha256=hashes,checkpoint_files_sha256=hashlib.sha256(canonical(hashes).encode()).hexdigest())
+    return record

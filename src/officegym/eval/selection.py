@@ -3,7 +3,7 @@ import hashlib
 import json
 from pathlib import Path
 from officegym.env.world import canonical
-from officegym.training.checkpoints import checkpoint_fingerprint
+from officegym.training.checkpoints import checkpoint_fingerprint,verify_training_source
 from .analysis import validate_row,VERSION_FIELDS,TASK_FIELDS
 from .plan import missing_runs
 
@@ -53,10 +53,12 @@ def freeze(candidates,plan_path,group,out):
         fingerprint=checkpoint_fingerprint(checkpoint)['checkpoint_sha256']
         if record.get('stage')!=stages[group] or record.get('checkpoint_sha256')!=fingerprint or not record.get('equivalence_report_sha256'):
             raise ValueError('candidate must be an equivalence-verified export of the selected stage')
+        if not record.get('training_source') or verify_training_source(record['training_source'])!=step:
+            raise ValueError('candidate optimizer step differs from saved training evidence')
         bound.append(dict(candidate_id=candidate['candidate_id'],optimizer_step=step,checkpoint=str(checkpoint),checkpoint_sha256=fingerprint,export_record=str(export),export_sha256=digest(export)))
     if not bound or any(not isinstance(row['candidate_id'],str) or not row['candidate_id'] for row in bound) or len({row['candidate_id'] for row in bound})!=len(bound) or len({row['checkpoint_sha256'] for row in bound})!=len(bound):
         raise ValueError('nonempty unique checkpoint candidates required')
-    rule=dict(format='officegym_dev_selection_v1',group=group,dev_plan=str(plan_path),dev_plan_sha256=digest(plan_path),candidates=bound,
+    rule=dict(format='officegym_dev_selection_v2_training_source',group=group,dev_plan=str(plan_path),dev_plan_sha256=digest(plan_path),candidates=bound,
               ranking=['highest_instance_macro_success','lowest_optimizer_step','checkpoint_sha256'])
     path=Path(out)
     path.parent.mkdir(parents=True,exist_ok=True)
@@ -70,7 +72,7 @@ def freeze(candidates,plan_path,group,out):
 def select(rule_path,result_files,out):
     frozen(rule_path)
     rule=json.loads(Path(rule_path).read_text())
-    if rule.get('format')!='officegym_dev_selection_v1' or rule.get('ranking')!=['highest_instance_macro_success','lowest_optimizer_step','checkpoint_sha256']:
+    if rule.get('format')!='officegym_dev_selection_v2_training_source' or rule.get('ranking')!=['highest_instance_macro_success','lowest_optimizer_step','checkpoint_sha256']:
         raise ValueError('unsupported frozen checkpoint selection rule')
     frozen(rule['dev_plan'])
     if digest(rule['dev_plan'])!=rule['dev_plan_sha256']:
@@ -83,6 +85,9 @@ def select(rule_path,result_files,out):
     for candidate in rule['candidates']:
         if digest(candidate['export_record'])!=candidate['export_sha256'] or checkpoint_fingerprint(candidate['checkpoint'])['checkpoint_sha256']!=candidate['checkpoint_sha256']:
             raise ValueError('checkpoint candidate changed after freeze')
+        exported=json.loads(Path(candidate['export_record']).read_text())
+        if verify_training_source(exported['training_source'])!=candidate['optimizer_step']:
+            raise ValueError('candidate optimizer step differs from saved training evidence')
         path=Path(result_files[candidate['candidate_id']]).resolve()
         measured=rows(path)
         for row in measured:
