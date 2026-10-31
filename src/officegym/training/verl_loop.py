@@ -11,6 +11,9 @@ from officegym.harness.loop import initial_messages
 from officegym.tools.schema import tool_schemas
 from .registry import REGISTRY
 from .token_budget import TokenLedger,GenerationBudget
+from .tool_execution import dispatch_generated_call,single_call
+from verl.tools.schemas import ToolResponse
+from officegym.env.world import canonical
 
 
 @register('officegym')
@@ -22,6 +25,7 @@ class OfficeGymAgentLoop(ToolAgentLoop):
         self._officegym_trajectory = trajectory
         self._generation_budget = GenerationBudget(trusted['max_generation_tokens'],trusted['max_context_tokens'])
         self._generation_uncertain = False
+        self._invalid_tool_batch = False
         ledger = TokenLedger(trusted['token_ledger_path'],trusted['global_rollout_token_limit'])
         try:
             ledger.reserve(trajectory,actor,trusted['max_generation_tokens'])
@@ -41,18 +45,22 @@ class OfficeGymAgentLoop(ToolAgentLoop):
                                          logprobs=output.response_logprobs,actor_version=actor)
             reward = terminal['reward']
             # Upstream response cap can truncate output. Such runs cannot count as success.
-            if len(output.response_ids)>=self.response_length or self._generation_budget.stopped:
+            if len(output.response_ids)>=self.response_length or self._generation_budget.stopped or self._invalid_tool_batch:
                 reward = min(reward,0.0)
             output.reward_score = reward
-            output.extra_fields.update(officegym_actor_version=actor,officegym_final_hash=terminal['final_state_hash'],officegym_tool_calls=terminal['tool_calls'],officegym_generated_tokens=self._generation_budget.observed)
+            output.extra_fields.update(officegym_actor_version=actor,officegym_final_hash=terminal['final_state_hash'],officegym_tool_calls=terminal['tool_calls'],officegym_generated_tokens=self._generation_budget.observed,officegym_invalid_tool_batch=self._invalid_tool_batch)
             return output
         finally:
-            if not self._generation_uncertain:
-                row = ledger.db.execute('SELECT 1 FROM reservations WHERE trajectory=?',(trajectory,)).fetchone()
-                if row:
-                    ledger.record(trajectory,self._generation_budget.observed)
-            ledger.close()
-            REGISTRY.release(trajectory,'__episode__')
+            try:
+                if not self._generation_uncertain:
+                    row = ledger.db.execute('SELECT 1 FROM reservations WHERE trajectory=?',(trajectory,)).fetchone()
+                    if row:
+                        ledger.record(trajectory,self._generation_budget.observed)
+            finally:
+                try:
+                    ledger.close()
+                finally:
+                    REGISTRY.release(trajectory,'__episode__')
 
     async def _handle_generating_state(self,agent_data,sampling_params,ignore_termination=False):
         requested = sampling_params.get('max_tokens',self.response_length)
@@ -65,7 +73,17 @@ class OfficeGymAgentLoop(ToolAgentLoop):
         self._generation_uncertain = False
         return state
 
+    async def _call_tool(self,tool_call,tools_kwargs,agent_data):
+        # The episode lease owns the world. Avoid upstream parse/name errors that
+        # bypass billing, and its character truncation of structured observations.
+        environment = REGISTRY.entries[self._officegym_trajectory]['environment']
+        result = dispatch_generated_call(environment,tool_call.name,tool_call.arguments)
+        return ToolResponse(text=canonical(result)),0.0,{'officegym_tool_ok':float(result['ok'])}
+
     async def _handle_processing_tools_state(self,agent_data):
+        if not single_call(agent_data.tool_calls):
+            self._invalid_tool_batch = True
+            return AgentState.TERMINATED
         state = await super()._handle_processing_tools_state(agent_data)
         environment = REGISTRY.entries[self._officegym_trajectory]['environment']
         if environment._client.meta('finished'):
