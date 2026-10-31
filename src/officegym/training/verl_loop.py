@@ -46,15 +46,12 @@ class OfficeGymAgentLoop(ToolAgentLoop):
             output = await super().run(sampling_params,priority=priority,**kwargs)
             if output.response_logprobs is None:
                 raise ValueError('native rollout logprobs required; enable backend reporting')
+            reason = ('invalid_tool_batch' if self._invalid_tool_batch else 'generation_budget' if self._generation_budget.stopped else 'response_limit' if len(output.response_ids)>=self.response_length else 'policy_terminated')
             terminal = REGISTRY.finalize(trajectory,input_ids=output.response_ids,response_mask=output.response_mask,
                                          token_roles=['assistant' if bit else 'tool' for bit in output.response_mask],
-                                         logprobs=output.response_logprobs,actor_version=actor)
-            reward = terminal['reward']
-            # Upstream response cap can truncate output. Such runs cannot count as success.
-            if len(output.response_ids)>=self.response_length or self._generation_budget.stopped or self._invalid_tool_batch:
-                reward = min(reward,0.0)
-            output.reward_score = reward
-            output.extra_fields.update(officegym_actor_version=actor,officegym_final_hash=terminal['final_state_hash'],officegym_tool_calls=terminal['tool_calls'],officegym_generated_tokens=self._generation_budget.observed,officegym_invalid_tool_batch=self._invalid_tool_batch)
+                                         logprobs=output.response_logprobs,actor_version=actor,termination_reason=reason)
+            output.reward_score = terminal['reward']
+            output.extra_fields.update(officegym_termination_reason=reason,officegym_actor_version=actor,officegym_final_hash=terminal['final_state_hash'],officegym_tool_calls=terminal['tool_calls'],officegym_generated_tokens=self._generation_budget.observed,officegym_invalid_tool_batch=self._invalid_tool_batch)
             return output
         finally:
             try:

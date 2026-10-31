@@ -24,3 +24,36 @@ class RLEnvironmentTests(unittest.TestCase):
             self.assertTrue((root/'archive'/'terminal.json').is_file())
             self.assertTrue((root/'archive'/'final_world.sqlite').is_file())
             self.assertTrue((root/'archive'/'tools.jsonl').is_file())
+
+    def test_budget_failures_archive_the_same_reward_returned_to_optimizer(self):
+        import json
+        from officegym.tasks.reference import solve
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            manifest=generate(root/'tasks',templates=['T01'],count_per_template=1,split='train')
+            source=root/'tasks'/manifest['instances'][0]['path']
+            for reason in ('policy_terminated','response_limit','generation_budget','invalid_tool_batch'):
+                archive=root/reason
+                with RolloutEnvironment(source,actor_version='fixture',artifact_dir=archive) as environment:
+                    solve(environment.public_task,lambda name,args,operation=None:environment.call(name,args))
+                    result=environment.finalize(input_ids=[1,2],response_mask=[1,0],token_roles=['assistant','tool'],logprobs=[-.1,0.0],actor_version='fixture',termination_reason=reason)
+                    self.assertTrue(result['domain_grade']['full_success'])
+                    self.assertTrue(result['operation_audit']['consistent'])
+                    self.assertEqual(result['grade']['full_success'],reason=='policy_terminated')
+                    self.assertEqual(result['reward'],1.0 if reason=='policy_terminated' else 0.0)
+                    self.assertEqual(json.loads((archive/'terminal.json').read_text()),result)
+
+    def test_terminal_publish_failure_leaves_explicit_incomplete_world(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            manifest=generate(root/'tasks',templates=['T01'],count_per_template=1,split='train')
+            source=root/'tasks'/manifest['instances'][0]['path']
+            environment=RolloutEnvironment(source,actor_version='fixture',artifact_dir=root/'archive')
+            with patch('officegym.training.environment.write_json',side_effect=OSError('fixture publish failure')):
+                with self.assertRaises(OSError):
+                    environment.finalize(input_ids=[1],response_mask=[1],token_roles=['assistant'],logprobs=[-.1],actor_version='fixture')
+            environment.close()
+            self.assertTrue((root/'archive'/'final_world.sqlite').is_file())
+            self.assertTrue((root/'archive'/'incomplete.json').is_file())
+            self.assertFalse((root/'archive'/'terminal.json').exists())

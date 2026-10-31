@@ -13,6 +13,8 @@ from officegym.env.rollout import clone_world
 from officegym.tools.dispatcher import Dispatcher
 from officegym.tools.schema import WRITES
 from officegym.graders.result import evaluate
+from officegym.graders.operations import reconcile
+from officegym.eval.artifacts import write_json
 from .data import validate_rollout
 
 
@@ -62,38 +64,57 @@ class RolloutEnvironment:
                 os.fsync(stream.fileno())
         return result
 
-    def finalize(self,*,input_ids,response_mask,token_roles,logprobs,actor_version):
+    def finalize(self,*,input_ids,response_mask,token_roles,logprobs,actor_version,termination_reason='policy_terminated'):
         if self.closed or self._graded or actor_version!=self.actor_version:
             raise ValueError('rollout lifecycle or actor version mismatch')
+        if termination_reason not in ('policy_terminated','response_limit','generation_budget','invalid_tool_batch'):
+            raise ValueError('unknown rollout termination reason')
         validate_rollout(input_ids,response_mask,token_roles,logprobs)
-        grade = evaluate(self._path,self._spec,self._initial)
+        domain_grade = evaluate(self._path,self._spec,self._initial)
+        audit = reconcile(self._path)
+        grade = dict(domain_grade)
+        if termination_reason!='policy_terminated' or not audit['consistent']:
+            failures = list(grade['failures'])
+            if termination_reason!='policy_terminated':
+                failures.append('rollout_'+termination_reason)
+            if not audit['consistent']:
+                failures.append('operation_audit_inconsistent')
+            grade.update(full_success=False,reward=-1.0 if grade['hard_violations'] else 0.0,failures=failures)
         self._graded = True
-        result = {'reward':grade['reward'],'grade':grade,'final_state_hash':self._world.state_hash(),
+        result = {'reward':grade['reward'],'grade':grade,'domain_grade':domain_grade,'termination_reason':termination_reason,'operation_audit':audit,'final_state_hash':self._world.state_hash(),
                 'actor_version':actor_version,'tool_calls':self._client.meta('tool_calls'),'original_token_ids':list(input_ids),'response_mask':list(response_mask),'token_roles':list(token_roles),'original_logprobs':list(logprobs)}
         if self.artifact_dir:
-            (self.artifact_dir/'terminal.json').write_text(canonical(result)+'\n')
             destination = sqlite3.connect(self.artifact_dir/'final_world.sqlite')
             try:
                 self._world.db.backup(destination)
             finally:
                 destination.close()
+            write_json(self.artifact_dir/'terminal.json',result)
         return result
 
     def close(self):
         if getattr(self,'closed',False):
             return
-        if hasattr(self,'_world'):
-            archive = getattr(self,'artifact_dir',None)
-            if archive and not (archive/'final_world.sqlite').exists():
-                destination = sqlite3.connect(archive/'final_world.sqlite')
+        try:
+            if hasattr(self,'_world'):
+                archive = getattr(self,'artifact_dir',None)
+                if archive and not (archive/'final_world.sqlite').exists():
+                    destination = sqlite3.connect(archive/'final_world.sqlite')
+                    try:
+                        self._world.db.backup(destination)
+                    finally:
+                        destination.close()
+                if archive and not (archive/'terminal.json').exists():
+                    write_json(archive/'incomplete.json',{'terminal_grade_available':False})
+        finally:
+            try:
+                if hasattr(self,'_world'):
+                    self._world.close()
+            finally:
                 try:
-                    self._world.db.backup(destination)
+                    self._temporary.cleanup()
                 finally:
-                    destination.close()
-                (archive/'incomplete.json').write_text(canonical({'terminal_grade_available':False})+'\n')
-            self._world.close()
-        self._temporary.cleanup()
-        self.closed = True
+                    self.closed = True
 
     def __enter__(self):
         return self
