@@ -15,7 +15,7 @@ import statistics
 
 KEY_FIELDS = ("group", "split", "instance_id", "repeat_id")
 VERSION_FIELDS = ("env_version", "eval_grader_version", "reward_version", "harness_version", "dataset_manifest_hash", "budget_hash", "context_metrics_version")
-TASK_FIELDS = ("scenario_family_id", "template_id", "depth_level", "perturbation_level")
+TASK_FIELDS = ("scenario_family_id", "template_id", "depth_level", "perturbation_level", "dependency_width")
 BOOL_FIELDS = ("success", "infra_error", "fault_injected", "recovery_started", "premature_completion", "declared_done")
 INT_FIELDS = ("repeat_id", "duplicate_effects", "generated_tokens", "input_tokens", "tool_calls", "sim_seconds") + CONTEXT_FIELDS
 TEXT_FIELDS = ("instance_id", "scenario_family_id", "group", "split", "template_id") + VERSION_FIELDS + ("model_version",)
@@ -56,9 +56,11 @@ def validate_row(row):
     for name in INT_FIELDS:
         if type(row[name]) is not int or row[name] < 0:
             raise ValueError(f"Expected nonnegative integer: {name}")
-    for name in ("depth_level", "perturbation_level"):
+    for name in ("depth_level", "perturbation_level", "dependency_width"):
         if type(row[name]) is not int:
             raise ValueError(f"Expected integer: {name}")
+    if row['dependency_width']<1:
+        raise ValueError('positive dependency_width required')
     if isinstance(row["wall_seconds"], bool) or not isinstance(row["wall_seconds"], (int, float)) or not math.isfinite(row["wall_seconds"]) or row["wall_seconds"] < 0:
         raise ValueError("Invalid wall_seconds")
     if row['context_metrics_version']!=CONTEXT_METRICS_VERSION:
@@ -249,15 +251,15 @@ def main():
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     csv_path = report_path.with_suffix(".csv")
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["group","depth_level","perturbation_level","runs","success_rate","compression_trigger_rate","mean_compression_triggers","mean_summary_model_calls","mean_context_tokens","peak_context_tokens"])
+        writer = csv.DictWriter(handle, fieldnames=["group","depth_level","perturbation_level","dependency_width","runs","success_rate","compression_trigger_rate","mean_compression_triggers","mean_summary_model_calls","mean_context_tokens","peak_context_tokens"])
         writer.writeheader()
         for group in (args.a, args.b):
-            pairs = sorted({(r["depth_level"],r["perturbation_level"]) for r in rows})
-            for depth, perturbation in pairs:
-                items = [r for r in rows if r["group"]==group and r["depth_level"]==depth and r["perturbation_level"]==perturbation]
+            pairs = sorted({(r["depth_level"],r["perturbation_level"],r["dependency_width"]) for r in rows})
+            for depth, perturbation, width in pairs:
+                items = [r for r in rows if r["group"]==group and r["depth_level"]==depth and r["perturbation_level"]==perturbation and r["dependency_width"]==width]
                 if items:
                     s = summary(items)
-                    writer.writerow({"group":group,"depth_level":depth,"perturbation_level":perturbation,
+                    writer.writerow({"group":group,"depth_level":depth,"perturbation_level":perturbation,"dependency_width":width,
                                      "runs":len(items),"success_rate":s["success_rate"],**{key:s[key] for key in ("compression_trigger_rate","mean_compression_triggers","mean_summary_model_calls","mean_context_tokens","peak_context_tokens")}})
     print(f"Report: {report_path}; stratified CSV: {csv_path}")
     print("CSV cells are descriptive. Hold other factors fixed before drawing a depth/perturbation curve.")

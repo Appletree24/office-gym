@@ -88,3 +88,30 @@ def check_holdout(event_signature, forbidden_signatures):
                 position += 1
                 if position==len(forbidden):
                     raise ValueError('held-out event combination in training instance')
+
+
+def dependency_width(nodes,edges):
+    """Maximum DAG antichain size via transitive-closure bipartite matching."""
+    dependency_depth(nodes,edges)
+    children={node:set() for node in nodes}
+    for source,target in edges:
+        children[source].add(target)
+    reach={node:set() for node in nodes}
+    for node in nodes:
+        pending=list(children[node])
+        while pending:
+            child=pending.pop()
+            if child not in reach[node]:
+                reach[node].add(child)
+                pending.extend(children[child])
+    matched={}
+    def augment(node,seen):
+        for target in sorted(reach[node]):
+            if target in seen:
+                continue
+            seen.add(target)
+            if target not in matched or augment(matched[target],seen):
+                matched[target]=node
+                return True
+        return False
+    return len(nodes)-sum(augment(node,set()) for node in nodes)

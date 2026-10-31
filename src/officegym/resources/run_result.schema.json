@@ -38,7 +38,8 @@
     "summary_cache_hits",
     "compressed_context_count",
     "truncated_context_count",
-    "context_metrics_version"
+    "context_metrics_version",
+    "dependency_width"
   ],
   "properties": {
     "instance_id": {
@@ -178,6 +179,10 @@
     "context_metrics_version": {
       "type": "string",
       "minLength": 1
+    },
+    "dependency_width": {
+      "type": "integer",
+      "minimum": 1
     }
   },
   "additionalProperties": true,

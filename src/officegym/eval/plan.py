@@ -6,7 +6,7 @@ from officegym.env.world import canonical
 
 P0 = ('api_simple','api_full','base_full','sft_full','grpo_full')
 P1 = P0 + ('base_simple','grpo_simple','rs_sft_full')
-FIELDS = ('split','instance_id','scenario_family_id','template_id','depth_level','perturbation_level')
+FIELDS = ('split','instance_id','scenario_family_id','template_id','depth_level','perturbation_level','dependency_width')
 
 
 def run_key(row):
@@ -33,6 +33,8 @@ def build_plan(instances,priority='P0',splits=('id_test','combo_test','unseen_te
             raise ValueError('missing task identity metadata')
         if type(base['depth_level']) is not int or base['depth_level'] not in (1,2,3) or type(base['perturbation_level']) is not int or base['perturbation_level'] not in (0,1,2):
             raise ValueError('invalid experimental condition')
+        if type(base['dependency_width']) is not int or base['dependency_width']<1:
+            raise ValueError('positive measured dependency width required')
         for group in groups:
             for repeat in (0,1,2):
                 rows.append(dict(base,group=group,repeat_id=repeat))

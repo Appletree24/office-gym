@@ -12,12 +12,12 @@ def run_dependency_probes(instance_dir,out):
     source = Path(instance_dir)
     task = json.loads((source/'task.json').read_text())['public_task']
     private = json.loads((source/'private_spec.json').read_text())
-    if not task.get('requires_approval') or not task.get('collect_availability') or not task.get('followup_required'):
-        raise ValueError('probe needs a D3 task with confirmation and replies')
+    if not task.get('requires_approval') or not task.get('collect_availability') or not task.get('followup_required') or not task.get('required_document_refs'):
+        raise ValueError('probe needs a D3 task with confirmation, replies and material binding')
     root = Path(out)
     root.mkdir(parents=True,exist_ok=False)
     records = []
-    for stage in ('confirmation','reply_collection','followup_todos'):
+    for stage in ('confirmation','reply_collection','material_binding','followup_todos'):
         directory = root/stage
         directory.mkdir()
         world = clone_world(source/'initial_world.sqlite',directory/'final.sqlite')
@@ -28,6 +28,13 @@ def run_dependency_probes(instance_dir,out):
                 def call(name,args,operation=None):
                     nonlocal intercepted
                     data = None
+                    effective_args=args
+                    if stage=='material_binding' and name=='calendar.create':
+                        effective_args=dict(args,document_refs=[])
+                        intercepted += 1
+                    elif stage=='material_binding' and name=='calendar.update' and 'document_refs' in args.get('patch',{}):
+                        effective_args=dict(args,patch=dict(args['patch'],document_refs=[]))
+                        intercepted += 1
                     if stage=='confirmation' and name=='approvals.request':
                         data = {'approval_id':'forged_approval','status':'pending'}
                     elif stage=='confirmation' and name=='approvals.get':
@@ -42,8 +49,8 @@ def run_dependency_probes(instance_dir,out):
                         intercepted += 1
                         result = {'ok':True,'data':data,'error':None,'meta':{'sim_time':client.meta('sim_time')}}
                     else:
-                        result = client.call(name,args,operation)
-                    trace.write(canonical(dict(tool=name,arguments=args,result=result,injected_observation=data is not None))+'\n')
+                        result = client.call(name,effective_args,operation)
+                    trace.write(canonical(dict(tool=name,arguments=args,effective_arguments=effective_args,modified_arguments=effective_args!=args,result=result,injected_observation=data is not None))+'\n')
                     return result
                 solve(task,call)
             grade = evaluate(directory/'final.sqlite',{**task,**private},source/'initial_world.sqlite')

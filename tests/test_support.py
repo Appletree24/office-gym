@@ -18,7 +18,7 @@ def fixtures():
                 rows.append({
                     "instance_id":instance, "scenario_family_id":instance, "repeat_id":repeat,
                     "group":group, "split":"id_test", "template_id":"T01",
-                    "depth_level":1, "perturbation_level":0,
+                    "depth_level":1, "perturbation_level":0, "dependency_width":1,
                     "context_metrics_version":"context-metrics-v1", "context_samples":1,"context_token_sum":20,"peak_context_tokens":20,"compression_trigger_count":0,"summary_model_calls":0,"summary_cache_hits":0,"compressed_context_count":0,"truncated_context_count":0,
                     "model_version":"test-model", "reward_version":"test-reward", "harness_version":"test-harness",
                     "env_version":"test-env", "eval_grader_version":"test-grader",

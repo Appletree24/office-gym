@@ -32,7 +32,7 @@ def result_row(run_dir,plan_row,dataset_manifest):
     manifest_path = Path(dataset_manifest)
     manifest = json.loads(manifest_path.read_text())
     entry = next((entry for entry in manifest['instances'] if entry['instance_id']==result['instance_id']),None)
-    if entry is None or any(entry[field]!=plan_row[field] for field in ('split','template_id','scenario_family_id','depth_level','perturbation_level')):
+    if entry is None or any(entry[field]!=plan_row[field] for field in ('split','template_id','scenario_family_id','depth_level','perturbation_level','dependency_width')):
         raise ValueError('plan metadata differs from dataset')
     def meta(path):
         db = sqlite3.connect(Path(path).resolve().as_uri()+'?mode=ro',uri=True)

@@ -7,7 +7,7 @@ from officegym.graders.result import evaluate
 from officegym.graders.operations import reconcile
 from officegym.tools.dispatcher import Dispatcher
 from .reference import solve
-from .integrity import fingerprints,dependency_depth
+from .integrity import dependency_width,fingerprints,dependency_depth
 from .validate import REQUIRED
 
 
@@ -19,7 +19,7 @@ def write_instance(root, task, initial_world, private_spec, event_rules, identit
     directory = root/identity
     directory.mkdir(parents=True,exist_ok=False)
     dag = task['dependency_dag']
-    task = dict(task,dependency_path_length=dependency_depth(dag['nodes'],dag['edges']))
+    task = dict(task,dependency_path_length=dependency_depth(dag['nodes'],dag['edges']),dependency_width=dependency_width(dag['nodes'],dag['edges']))
     public = task['public_task']
     fp = fingerprints(public,initial_world.snapshot(),event_rules,'env-v1',identity_map=identity_map)
     snapshot = directory/'initial_world.sqlite'
@@ -53,7 +53,7 @@ def write_instance(root, task, initial_world, private_spec, event_rules, identit
         terminal_hash = world.state_hash()
     finally:
         world.close()
-    entry = {key:task[key] for key in ('instance_id','split','template_id','scenario_family_id','depth_level','perturbation_level')}
+    entry = {key:task[key] for key in ('instance_id','split','template_id','scenario_family_id','depth_level','perturbation_level','dependency_width')}
     entry.update(fp,path=identity,reference_final_hash=terminal_hash,identity_map=identity_map or {},env_version='env-v1',
                  files_sha256={filename:hashlib.sha256((directory/filename).read_bytes()).hexdigest() for filename in REQUIRED})
     return entry

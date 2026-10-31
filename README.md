@@ -6,6 +6,7 @@ Python 3.11+，当前 CPU 实现仅依赖标准库。项目目录中执行：
 
 ```bash
 python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements-env.lock
 PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
 PYTHONPATH=src .venv/bin/python -m officegym.cli probe-reference --out artifacts/reference_new
 PYTHONPATH=src .venv/bin/python -m officegym.cli probe-fault --out artifacts/fault_new
@@ -40,3 +41,5 @@ LoRA merged 导出入口：`python -m officegym.training.merge --help`。解析�
 数值等价性入口：`python -m officegym.training.equivalence --help`。计划绑定 merge 计划/结果和固定 token probes 的哈希，显式限制案例数、输入/输出 token、forward logits 元素数、时间以及数值/生成匹配阈值。它比较每个输入最后一个位置的完整词表 logits 和贪心生成 token IDs，重新加载 merged 模型并保存两侧原始 tensor 证据。`passed_numeric` 只表示这一层检查；`passed` 保持 false，工具行为等价性仍须另行完成。
 
 工具行为等价性入口：`python -m officegym.training.tool_equivalence freeze --help` / `finalize --help`。先冻结数值证据、dev 计划、阈值和预定结果路径（此时结果文件不得已存在），再使用有界评测入口分别采集 adapter 与 merged 模型结果。前者的 `model_version` 绑定数值报告中的 `source_checkpoint_files_sha256`，后者绑定 `exported_checkpoint_sha256`。最终验收重导出原始运行、重新评分保存的世界，要求完整三次重复、相同 tokenizer／采样／预算、无基础设施错误、无新增重复效果或严重违规。仅数值与工具检查都通过的报告才能用于 `record_export`；部署是否确实加载对应权重仍需服务端运行证据支持。
+
+当前开发候选为 `artifacts/dataset_development_v5`，尚未冻结。训练仍为 8 个模板各 100 条，其中 T04 按五个条件格各 20 条抽样，ID 每格 12 条使用独立种子；控制扫描固定背景邮件、初始材料大小、参与人数、时间窗口、截止/监控时间和消息上限。`workflow_count=1` 指一条会议工作流，实际 DAG 宽度另行计算：D1 为 1，D2/D3 为 2。计划、结果及分层 CSV 都保留 `dependency_width`，跨宽度差异不能解释成纯深度效应；扰动档位指预设外部事件数，不等同于所有策略实际重规划次数。

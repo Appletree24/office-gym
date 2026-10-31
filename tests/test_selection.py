@@ -11,7 +11,7 @@ from officegym.training.evidence import TrainingEvidence
 
 class SelectionTests(unittest.TestCase):
     def fixture(self,root):
-        plan=[dict(group='sft_full',split='dev',instance_id='fixture',repeat_id=repeat,scenario_family_id='family',template_id='D01',depth_level=1,perturbation_level=0) for repeat in range(3)]
+        plan=[dict(group='sft_full',split='dev',instance_id='fixture',repeat_id=repeat,scenario_family_id='family',template_id='D01',depth_level=1,perturbation_level=0,dependency_width=1) for repeat in range(3)]
         freeze_plan(plan,root/'plan.jsonl')
         candidates=[];files={}
         evidence=TrainingEvidence(root)

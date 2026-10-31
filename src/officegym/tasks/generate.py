@@ -6,6 +6,7 @@ from officegym.tools.dispatcher import Dispatcher
 from .artifacts import write_instance
 from .integrity import validate_unique,check_holdout
 from .dependencies import dependency_edges
+from .controls import PROFILE,material
 
 from .partitions import TRAIN_TEMPLATES,SUPPORTED,SEED_RANGES,HELDOUT_SIGNATURES
 
@@ -50,6 +51,8 @@ def generate(out,templates=TRAIN_TEMPLATES,count_per_template=3,seed=None,split=
             number = seed+index
             base = 1800000000 + number*86400
             public = dict(principal_id='assistant',required_participant_ids=['owner','client'],allowed_window_utc=[base+10000,base+20000],deadline_at=base+9000,title='Review '+str(number),requires_approval=template!='T01',approver_id='owner')
+            if depth_level is not None:
+                public.update(deadline_at=base+PROFILE['deadline_offset_seconds'],monitor_until=base+PROFILE['monitor_offset_seconds'],allowed_window_utc=[base+offset for offset in PROFILE['allowed_window_offsets_seconds']],message_cap_per_recipient=PROFILE['message_cap_per_recipient'])
             nodes = ['plan','invite'] if template=='T01' else ['plan','confirm','invite']
             private, rules = {}, {}
             if template in ('T08','U04') or depth_level==3:
@@ -97,7 +100,7 @@ def generate(out,templates=TRAIN_TEMPLATES,count_per_template=3,seed=None,split=
                     scheduled.append(dict(id='scan_reschedule',due_at=base+2500,kind='MeetingRescheduleRequested',payload={'meeting_selector':{'organizer_id':'assistant','title':public['title']},'start_at':base+14000,'end_at':base+15800}))
                 if level==2:
                     public['track_document_ids'] = ['agenda']
-                    scheduled.append(dict(id='scan_material',due_at=base+3500,kind='DocumentVersionPublished',payload={'document_id':'agenda','expected_version':1,'content':'Scan material update '+str(number)}))
+                    scheduled.append(dict(id='scan_material',due_at=base+3500,kind='DocumentVersionPublished',payload={'document_id':'agenda','expected_version':1,'content':material('Scan material update '+str(number))}))
             signature = [event['kind'] for event in sorted(scheduled,key=lambda event:(event['due_at'],event['id']))]
             if split=='train':
                 check_holdout(signature,HELDOUT_SIGNATURES)
@@ -116,6 +119,12 @@ def generate(out,templates=TRAIN_TEMPLATES,count_per_template=3,seed=None,split=
                     with world.db:
                         for person in ('assistant','owner','client','replacement'):
                             world.db.execute('INSERT INTO people VALUES (?,?,?,?,?)',(person,person,person+'@office.test','UTC','["*"]'))
+                    if depth_level is not None:
+                        with world.db:
+                            for noise_index in range(PROFILE['background_messages']):
+                                identity='background_'+str(noise_index)
+                                body=('Background note '+str(noise_index)+' for '+str(number)).ljust(PROFILE['background_message_chars'],'.')
+                                world.db.execute('INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',(identity,identity,'owner','["assistant"]','coordination','Archived background note',body,'[]',None,None,None,base-1000+noise_index))
                     if template=='U01':
                         with world.db:
                             world.db.execute('INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',('handoff_1','handoff','owner','["assistant","replacement"]','coordination','Coordinator handoff','Replacement now coordinates this review.','[]',canonical({'type':'coordinator_handoff','new_coordinator_id':'replacement','approver_id':'replacement'}),None,None,base))
@@ -124,9 +133,9 @@ def generate(out,templates=TRAIN_TEMPLATES,count_per_template=3,seed=None,split=
                         # Trusted construction uses business validation without Agent billing.
                         with world.db:
                             client.execute('calendar.create',dict(title='Existing commitment',participant_ids=['owner'],start_at=base+10000,end_at=base+13000))
-                    if refs:
+                    if refs or depth_level is not None:
                         with world.db:
-                            client.execute('documents.put',dict(document_id='agenda',expected_version=0,title='Agenda',content='Review material '+str(number)))
+                            client.execute('documents.put',dict(document_id='agenda',expected_version=0,title='Agenda',content=material('Review material '+str(number)) if depth_level is not None else 'Review material '+str(number)))
                     with world.db:
                         for event in scheduled:
                             world.db.execute('INSERT INTO scheduled_events VALUES (?,?,?,?,?,?,?,?)',(event['id'],event['due_at'],10,event['kind'],'{}',canonical(event['payload']),'["assistant"]','pending'))
@@ -134,10 +143,12 @@ def generate(out,templates=TRAIN_TEMPLATES,count_per_template=3,seed=None,split=
                         for key,value in rules.items():
                             client.set_meta(key,value)
                     task = dict(instance_id=template+'_'+str(number)+(('_D'+str(depth_level)+'P'+str(perturbation_level or 0)) if depth_level is not None else ''),split=split,template_id=template,scenario_family_id='family_'+str(number),depth_level=depth_level if depth_level is not None else (3 if template in ('T08','U04') else 1),perturbation_level=len(scheduled),event_signature=signature,seed=number,public_task=public,dependency_dag={'nodes':nodes,'edges':dependency_edges(nodes)})
+                    if depth_level is not None:
+                        task.update(controlled_scan=True,control_profile=dict(PROFILE))
                     entries.append(write_instance(root,task,world,private,dict(rules,scheduled_events=scheduled)))
                 finally:
                     world.close()
     validate_unique(entries)
-    manifest = dict(task_generator_version='generator-v1-development',status='development_distribution_not_frozen',heldout_signatures=HELDOUT_SIGNATURES,instances=entries)
+    manifest = dict(task_generator_version='generator-v3-controlled-width',status='development_distribution_not_frozen',heldout_signatures=HELDOUT_SIGNATURES,instances=entries)
     (root/'manifest.json').write_text(canonical(manifest)+'\n')
     return manifest

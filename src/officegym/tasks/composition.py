@@ -11,10 +11,14 @@ def report(manifest_path,out):
     validation = validate_dataset(path)
     manifest = json.loads(path.read_text())
     cells,signatures,templates = Counter(),Counter(),Counter()
+    controls=Counter()
+    widths=Counter()
     scenario_splits,fingerprint_splits = defaultdict(set),defaultdict(set)
     family_sizes = Counter()
     for entry in manifest['instances']:
         task = json.loads((path.parent/entry['path']/'task.json').read_text())
+        widths[(entry['split'],entry['depth_level'],entry['perturbation_level'],task['dependency_width'])]+=1
+        controls[(entry['split'],task.get('control_profile',{}).get('profile_id','uncontrolled'))]+=1
         cells[(entry['split'],entry['depth_level'],entry['perturbation_level'])] += 1
         templates[(entry['split'],entry['template_id'])] += 1
         signatures[(entry['split'],tuple(task.get('event_signature',[])))] += 1
@@ -26,7 +30,7 @@ def report(manifest_path,out):
     combo_atom_coverage = dict(train_event_kinds=sorted(train_atoms),combo_event_kinds=sorted(combo_atoms),
                                missing_training_event_kinds=sorted(combo_atoms-train_atoms),
                                all_combo_atoms_seen_in_training=not bool(combo_atoms-train_atoms))
-    result = dict(combo_atom_coverage=combo_atom_coverage,validation=validation,status=manifest.get('status'),limitations=manifest.get('limitations',[]),
+    result = dict(dependency_width_cells=[dict(split=split,depth=depth,perturbation=perturbation,dependency_width=width,count=count) for (split,depth,perturbation,width),count in sorted(widths.items())],control_profiles=[dict(split=split,profile=profile,count=count) for (split,profile),count in sorted(controls.items())],combo_atom_coverage=combo_atom_coverage,validation=validation,status=manifest.get('status'),limitations=manifest.get('limitations',[]),
                   condition_cells=[dict(split=split,depth=depth,perturbation=perturbation,count=count) for (split,depth,perturbation),count in sorted(cells.items())],
                   templates=[dict(split=split,template_id=template,count=count) for (split,template),count in sorted(templates.items())],
                   event_signatures=[dict(split=split,signature=list(signature),count=count) for (split,signature),count in sorted(signatures.items())],

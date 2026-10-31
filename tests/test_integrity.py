@@ -30,3 +30,9 @@ class IntegrityTests(unittest.TestCase):
         self.assertEqual(a['family_fingerprint'],b['family_fingerprint'])
         world_a['meta'][0]['value_json'] = '"dev"'
         self.assertEqual(a['exact_fingerprint'],fingerprints({},world_a,[],'v1')['exact_fingerprint'])
+
+    def test_dag_width_measures_parallel_prerequisites(self):
+        from officegym.tasks.integrity import dependency_width
+        self.assertEqual(dependency_width(['plan','confirm','invite'],[('plan','confirm'),('confirm','invite')]),1)
+        self.assertEqual(dependency_width(['reply','material','plan','invite'],[('reply','plan'),('material','plan'),('plan','invite')]),2)
+        self.assertEqual(dependency_width(['a','b','c'],[]),3)

@@ -33,7 +33,7 @@ def evaluate_batch(manifest_path,plan_path,config_path,out,*,group,split,max_run
     for row in selected:
         if row['instance_id'] not in entries:
             raise ValueError('planned instance missing')
-        if any(entries[row['instance_id']][key]!=row[key] for key in ('split','scenario_family_id','template_id','depth_level','perturbation_level')):
+        if any(entries[row['instance_id']][key]!=row[key] for key in ('split','scenario_family_id','template_id','depth_level','perturbation_level','dependency_width')):
             raise ValueError('plan dataset metadata mismatch')
     root = Path(out)
     selection = dict(group=group,split=split,plan_sha256=fingerprint,max_runs=max_runs,max_generated_tokens=max_generated_tokens,
