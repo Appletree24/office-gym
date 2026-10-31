@@ -126,7 +126,7 @@ async def worker(fetch_root,instance,root,backend='direct'):
 
 
 def run(fetch_root,instance,out,backend='direct'):
-    if backend not in ('direct','ray','ray-worker','ray-manager','native-logprob','native-gradient','native-engine-update','native-engine-resume','ray-weight-sync'):raise ValueError('explicit direct/ray probe backend required')
+    if backend not in ('direct','ray','ray-worker','ray-manager','native-logprob','native-gradient','native-engine-update','native-engine-resume','native-engine-update-continuation','native-engine-resume-continuation','ray-weight-sync'):raise ValueError('explicit direct/ray probe backend required')
     root=Path(out).resolve();root.mkdir(parents=True,exist_ok=False)
     artifact_dirs=[root]
     if backend.startswith('ray'):
@@ -164,6 +164,7 @@ def run(fetch_root,instance,out,backend='direct'):
     from .process_tree import execute_tree_bounded
     # Clean, explicit environment; no inherited API credentials.
     environment=dict(PATH=os.defpath,LANG='C.UTF-8',PYTHONPATH=str(Path(__file__).resolve().parents[2]),CUDA_VISIBLE_DEVICES='0',HF_HUB_OFFLINE='1',TRANSFORMERS_OFFLINE='1',TOKENIZERS_PARALLELISM='false',OMP_NUM_THREADS='2',VLLM_WORKER_MULTIPROC_METHOD='spawn',VLLM_NO_USAGE_STATS='1',DO_NOT_TRACK='1',VLLM_CACHE_ROOT=str(root/'vllm_cache'),TORCHINDUCTOR_CACHE_DIR=str(root/'torch_cache'),RAY_USAGE_STATS_ENABLED='0')
+    if backend.endswith('-continuation'):environment['CUBLAS_WORKSPACE_CONFIG']=':4096:8'
     if backend.startswith('ray'):environment['VLLM_API_KEY']=secrets.token_urlsafe(32)
     command=[sys.executable,'-m','officegym.training.native_inference_probe','--worker','--fetch-root',str(Path(fetch_root).resolve()),'--instance',str(Path(instance).resolve()),'--out',str(root),'--backend',backend]
     try:
@@ -181,13 +182,13 @@ def run(fetch_root,instance,out,backend='direct'):
 
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--fetch-root',required=True);parser.add_argument('--instance',required=True);parser.add_argument('--out',required=True);parser.add_argument('--worker',action='store_true',help=argparse.SUPPRESS);parser.add_argument('--backend',choices=('direct','ray','ray-worker','ray-manager','native-logprob','native-gradient','native-engine-update','native-engine-resume','ray-weight-sync'),default='direct');args=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--fetch-root',required=True);parser.add_argument('--instance',required=True);parser.add_argument('--out',required=True);parser.add_argument('--worker',action='store_true',help=argparse.SUPPRESS);parser.add_argument('--backend',choices=('direct','ray','ray-worker','ray-manager','native-logprob','native-gradient','native-engine-update','native-engine-resume','native-engine-update-continuation','native-engine-resume-continuation','ray-weight-sync'),default='direct');args=parser.parse_args()
     if args.worker:
-        if args.backend in ('native-engine-update','native-engine-resume'):
+        if args.backend.startswith('native-engine-'):
             from .native_logprob_probe import worker as engine_worker
-            source=Path(args.instance)
-            batch=source if args.backend=='native-engine-update' else Path(json.loads((source/'resource_plan.json').read_text())['instance'])
-            asyncio.run(engine_worker(args.fetch_root,batch,args.out,backward=args.backend=='native-engine-update',checkpoint_update=args.backend=='native-engine-update',resume_root=source if args.backend=='native-engine-resume' else None))
+            source=Path(args.instance);update=args.backend.startswith('native-engine-update')
+            batch=source if update else Path(json.loads((source/'resource_plan.json').read_text())['instance'])
+            asyncio.run(engine_worker(args.fetch_root,batch,args.out,backward=update,checkpoint_update=update,resume_root=None if update else source,continuation=args.backend.endswith('-continuation')))
         elif args.backend=='ray-weight-sync':
             from .native_weight_sync_probe import worker as sync_worker
             asyncio.run(sync_worker(args.fetch_root,args.instance,args.out))
