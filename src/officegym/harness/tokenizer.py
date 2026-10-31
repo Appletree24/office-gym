@@ -10,7 +10,7 @@ class PromptTokenizer:
             raise ValueError('locked revision and explicit chat template required')
         self.tokenizer,self.model_revision = tokenizer,model_revision
         self.template_kwargs = dict(template_kwargs or {})
-        forbidden = {'tokenize','add_generation_prompt','tools','return_tensors','return_dict'}
+        forbidden = {'tokenize','add_generation_prompt','tools','return_tensors','return_dict','chat_template'}
         if forbidden & set(self.template_kwargs):
             raise ValueError('template kwargs cannot override sizing contract')
         template = tokenizer.chat_template

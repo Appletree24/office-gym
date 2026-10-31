@@ -45,7 +45,7 @@ def build_dataset(run_dirs,out,tokenizer,*,max_length=8192,tokenizer_manifest):
                 rejected.append({'source_run':str(path),'reason':str(exc)})
     (out/'rejections.jsonl').write_text(''.join(canonical(row)+'\n' for row in rejected))
     manifest = dict(harness_version=HARNESS_VERSION,eval_grader_version=EVAL_GRADER_VERSION,reward_version=REWARD_VERSION,kind='sft_dataset_not_training_result',accepted=accepted,rejected=len(rejected),rejection_counts=dict(Counter(row['reason'] for row in rejected)),
-                    training_tokens=sum(row['tokens'] for row in accepted),max_length=max_length,tokenizer=tokenizer_manifest,alignment_samples=alignments,
+                    mask_tokenizer=tokenizer.mask_manifest() if hasattr(tokenizer,'mask_manifest') else {'strategy':'injected_tokenizer_fixture'},training_tokens=sum(row['tokens'] for row in accepted),max_length=max_length,tokenizer=tokenizer_manifest,alignment_samples=alignments,
                     manual_alignment_review_status='pending',samples_sha256=hashlib.sha256((out/'samples.jsonl').read_bytes()).hexdigest())
     (out/'manifest.json').write_text(canonical(manifest)+'\n')
     return manifest

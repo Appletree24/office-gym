@@ -28,5 +28,6 @@ class PromptTokenizerTests(unittest.TestCase):
     def test_template_override_rejected(self):
         class Tokenizer:
             chat_template = 'template'
-        with self.assertRaises(ValueError):
-            PromptTokenizer(Tokenizer(),model_revision='revision',template_kwargs={'tokenize':False})
+        for key in ('tokenize','chat_template'):
+            with self.subTest(key=key),self.assertRaises(ValueError):
+                PromptTokenizer(Tokenizer(),model_revision='revision',template_kwargs={key:False})
