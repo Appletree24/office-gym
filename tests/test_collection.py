@@ -27,7 +27,55 @@ class CollectionTests(unittest.TestCase):
             self.assertEqual(report['reserved_generated_tokens'],200)
             self.assertEqual(report['reported_generated_tokens'],0)
             self.assertTrue(report['budget_stop'])
+            self.assertFalse(report['usage_complete'])
+            self.assertEqual(report['resources']['reported_generated_tokens']['unknown_attempts'],2)
+            self.assertEqual(len((root/'collection'/'reservations.jsonl').read_text().splitlines()),2)
             rows = [json.loads(line) for line in (root/'collection'/'attempts.jsonl').read_text().splitlines()]
             self.assertEqual([row['attempt_id'] for row in rows],[0,1])
             self.assertTrue(all(row['execution_error_type']=='ConnectionError' for row in rows))
             self.assertTrue(all(row['reported_generated_tokens'] is None for row in rows))
+
+    def test_failed_and_successful_attempts_both_count_and_reserve_before_call(self):
+        import json,tempfile
+        from pathlib import Path
+        from officegym.tasks.generate import generate
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            generate(root/'tasks',templates=['T01'],count_per_template=1,split='train')
+            config=dict(endpoint='http://localhost:8000/v1/chat/completions',model='fixture',model_version='fixture',tokenizer_path=str(root),tokenizer_revision='fixture',mode='full',budget=dict(tool_calls=10,generated_tokens=100,wall_seconds=20,parse_retries=2),max_context_tokens=8192,max_output_tokens=512)
+            path=root/'config.json'
+            path.write_text(json.dumps(config))
+            calls=[]
+            def execute(instance,out,frozen):
+                # Authored usage fixtures; no model service or tokenizer is called.
+                calls.append(str(frozen))
+                self.assertNotEqual(Path(frozen),path)
+                self.assertEqual(json.loads(Path(frozen).read_text())['budget']['generated_tokens'],100)
+                self.assertEqual(len((root/'collection'/'reservations.jsonl').read_text().splitlines()),len(calls))
+                success=len(calls)==2
+                path.write_text('{}')
+                return dict(termination=dict(state='DECLARED_DONE' if success else 'PARSE_ERROR',generated_tokens=11 if success else 7,input_tokens=13 if success else 10,tool_calls=3 if success else 2),runner_wall_seconds=.7 if success else .5,grade={'full_success':success})
+            report=collect(root/'tasks'/'manifest.json',path,root/'collection',max_attempts_per_task=3,max_episodes=3,max_generated_tokens=300,run=execute)
+            self.assertTrue(report['usage_complete'])
+            self.assertEqual(report['resources']['reported_generated_tokens']['reported_total'],18)
+            self.assertEqual(report['resources']['reported_input_tokens']['reported_total'],23)
+            self.assertEqual(report['resources']['reported_tool_calls']['reported_total'],5)
+            self.assertAlmostEqual(report['resources']['reported_wall_seconds']['reported_total'],1.2)
+            self.assertEqual(report['reserved_generated_tokens'],200)
+
+    def test_backend_generation_overrun_stops_collection(self):
+        import json,tempfile
+        from pathlib import Path
+        from officegym.tasks.generate import generate
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            generate(root/'tasks',templates=['T01'],count_per_template=1,split='train')
+            config=dict(endpoint='http://localhost:8000/v1/chat/completions',model='fixture',model_version='fixture',tokenizer_path=str(root),tokenizer_revision='fixture',mode='full',budget=dict(tool_calls=10,generated_tokens=100,wall_seconds=20,parse_retries=2),max_context_tokens=8192,max_output_tokens=512)
+            path=root/'config.json';path.write_text(json.dumps(config))
+            def overrun(*args):
+                return dict(termination=dict(state='DECLARED_DONE',generated_tokens=101),grade={'full_success':True})
+            report=collect(root/'tasks'/'manifest.json',path,root/'collection',max_attempts_per_task=3,max_episodes=3,max_generated_tokens=300,run=overrun)
+            self.assertEqual(report['attempts'],1)
+            self.assertEqual(report['successful_tasks'],0)
+            self.assertEqual(report['generation_cap_overruns'],1)
+            self.assertTrue(report['budget_stop'])
