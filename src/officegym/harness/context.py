@@ -50,6 +50,43 @@ class SimpleContext:
             removed.append(groups.pop(0))
 
 
+def observed_refs(messages):
+    refs = set()
+    def collect(value):
+        if isinstance(value,dict):
+            for key,item in value.items():
+                if (key=='id' or key.endswith('_id')) and isinstance(item,str):
+                    refs.add(item)
+                    if type(value.get('version')) is int:
+                        refs.add(item+'/'+str(value['version']))
+                if key=='seq' and type(item) is int:
+                    refs.add('event_seq:'+str(item))
+                collect(item)
+        elif isinstance(value,list):
+            for item in value:
+                collect(item)
+    for message in messages:
+        if message.get('role')!='tool':
+            continue
+        try:
+            collect(json.loads(message.get('content','null')))
+        except (ValueError,TypeError):
+            continue
+    return refs
+
+
+def grounded_summary(summary,required,source):
+    if not isinstance(summary,dict) or not required <= set(summary) or not all(isinstance(summary[key],list) for key in required):
+        return False
+    allowed = observed_refs(source)
+    for item in summary['evidence']+summary['confirmed']:
+        if not isinstance(item,dict) or not isinstance(item.get('source_refs'),list) or not item['source_refs']:
+            return False
+        if any(not isinstance(ref,str) or ref not in allowed for ref in item['source_refs']):
+            return False
+    return True
+
+
 class FullContext(SimpleContext):
     """Summarizer must be the executing policy, with measured usage and provenance."""
     REQUIRED = {'goals','constraints','evidence','completed','blockers','waiting','unknown_operations','confirmed','hypotheses'}
@@ -97,8 +134,7 @@ class FullContext(SimpleContext):
                     raise ValueError('summary must report measured token usage')
             usage = dict(summary_input_tokens=record['input_tokens'],summary_output_tokens=record['output_tokens'])
             summary = record.get('summary',{})
-            valid = isinstance(summary,dict) and self.REQUIRED <= set(summary) and all(isinstance(summary[key],list) for key in self.REQUIRED)
-            valid = valid and all(isinstance(item,dict) and item.get('source_refs') for item in summary.get('evidence',[]))
+            valid = grounded_summary(summary,self.REQUIRED,source)
             if not valid:
                 return fallback,dict(fallback_info,**usage,compression_failed='invalid_summary',source_sha256=fingerprint)
             if not record.get('model_version') or not isinstance(record.get('sampling_parameters'),dict):
@@ -111,6 +147,8 @@ class FullContext(SimpleContext):
                     stream.write(canonical(item)+'\n')
                     stream.flush()
                     os.fsync(stream.fileno())
+        if not grounded_summary(record.get('summary'),self.REQUIRED,source):
+            return fallback,dict(fallback_info,**usage,compression_failed='invalid_archived_summary',source_sha256=fingerprint)
         selected = copy.deepcopy(messages[:2])+[{'role':'user','content':canonical({'kind':'model_summary_not_ground_truth','source_sha256':fingerprint,'summary':record['summary']})}]+copy.deepcopy(messages[-2:])
         tokens = self.count_tokens(selected,schemas)
         if tokens>self.limit:

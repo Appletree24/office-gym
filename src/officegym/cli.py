@@ -26,6 +26,9 @@ def main():
     generate.add_argument('--templates',default='T01,T02,T03,T04,T05,T06,T07,T08')
     generate.add_argument('--count-per-template',type=int,default=3)
     generate.add_argument('--seed',type=int,default=None)
+    generate.add_argument('--depth-level',type=int)
+    generate.add_argument('--perturbation-level',type=int)
+    generate.add_argument('--heldout-combo',action='store_true')
     generate.add_argument('--split',default='probe')
     reference = commands.add_parser('reference',help='Re-execute public reference solutions and verify final hashes')
     reference.add_argument('--manifest',required=True)
@@ -66,7 +69,13 @@ def main():
     train.add_argument('--config',required=True)
     train.add_argument('--data',required=True)
     train.add_argument('--out',required=True)
+    assembled = commands.add_parser('assemble-dataset',help='Assemble configured development dataset, not frozen')
+    assembled.add_argument('--config',required=True)
+    assembled.add_argument('--out',required=True)
     args = parser.parse_args()
+    if args.command == 'assemble-dataset':
+        from officegym.tasks.assemble import assemble
+        print(json.dumps(assemble(args.config,args.out),indent=2))
     if args.command == 'train-sft':
         from officegym.training.sft import train
         print(json.dumps(train(args.config,args.data,args.out),indent=2))
@@ -91,7 +100,7 @@ def main():
         print(json.dumps(reference_manifest(args.manifest,args.out),indent=2))
     if args.command == 'generate':
         from officegym.tasks.generate import generate
-        manifest = generate(args.out,args.templates.split(','),args.count_per_template,args.seed,args.split)
+        manifest = generate(args.out,args.templates.split(','),args.count_per_template,args.seed,args.split,heldout_combo=args.heldout_combo,depth_level=args.depth_level,perturbation_level=args.perturbation_level)
         print(json.dumps({'generated_instances':len(manifest['instances'])}))
     if args.command == 'validate-dataset':
         from officegym.tasks.validate import validate_dataset

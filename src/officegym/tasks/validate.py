@@ -4,7 +4,7 @@ import json
 import sqlite3
 from collections import Counter
 from pathlib import Path
-from .integrity import validate_unique, dependency_depth, fingerprints
+from .integrity import validate_unique, dependency_depth, fingerprints, check_holdout
 
 REQUIRED = ('task.json','initial_world.sqlite','private_spec.json','event_rules.json','reference_trace.jsonl','reference_grade.json')
 
@@ -32,6 +32,11 @@ def validate_dataset(manifest_path):
         task = json.loads((directory/'task.json').read_text())
         if task.get('example_only') or any(task[key]!=entry[key] for key in ('instance_id','split','template_id','scenario_family_id','depth_level','perturbation_level')):
             raise ValueError('task identity mismatch or example fixture')
+        if entry['split']=='train':
+            rules = json.loads((directory/'event_rules.json').read_text())
+            scheduled = rules.get('scheduled_events',[])
+            signature = [event['kind'] for event in sorted(scheduled,key=lambda event:(event['due_at'],event['id']))]
+            check_holdout(signature,manifest.get('heldout_signatures',[['AttendeeChanged','DocumentVersionPublished']]))
         dag = task['dependency_dag']
         depth = dependency_depth(dag['nodes'],dag['edges'])
         if depth != task['dependency_path_length']:

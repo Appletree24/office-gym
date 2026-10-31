@@ -4,14 +4,22 @@ from pathlib import Path
 from officegym.env.world import World,canonical
 from officegym.tools.dispatcher import Dispatcher
 from .artifacts import write_instance
-from .integrity import validate_unique
+from .integrity import validate_unique,check_holdout
 
 TRAIN_TEMPLATES = ('T01','T02','T03','T04','T05','T06','T07','T08')
 SUPPORTED = TRAIN_TEMPLATES + ('D01','D02','U01','U02','U03','U04')
-SEED_RANGES = {'train':(100000,199999),'dev':(200000,299999),'probe':(900000,909999),'unseen_test':(500000,599999)}
+SEED_RANGES = {'train':(100000,199999),'dev':(200000,299999),'probe':(900000,909999),'unseen_test':(500000,599999),'id_test':(300000,399999),'combo_test':(400000,499999)}
 
 
-def generate(out,templates=TRAIN_TEMPLATES,count_per_template=3,seed=None,split='probe'):
+HELDOUT_SIGNATURES = [('AttendeeChanged','DocumentVersionPublished')]
+
+def generate(out,templates=TRAIN_TEMPLATES,count_per_template=3,seed=None,split='probe',heldout_combo=False,depth_level=None,perturbation_level=None):
+    if depth_level is not None and (type(depth_level) is not int or depth_level not in (1,2,3) or tuple(templates)!=('T04',)):
+        raise ValueError('controlled depth currently requires T04 and level 1/2/3')
+    if perturbation_level is not None and (depth_level is None or type(perturbation_level) is not int or perturbation_level not in (0,1,2)):
+        raise ValueError('controlled perturbation requires controlled depth and level 0/1/2')
+    if depth_level is not None and heldout_combo:
+        raise ValueError('controlled scan and combo distribution are separate')
     if not templates or not set(templates)<=set(SUPPORTED):
         raise ValueError('unsupported template; implemented: '+','.join(SUPPORTED))
     if split not in SEED_RANGES:
@@ -20,8 +28,12 @@ def generate(out,templates=TRAIN_TEMPLATES,count_per_template=3,seed=None,split=
         seed = SEED_RANGES[split][0]
     if type(count_per_template) is not int or count_per_template<1 or type(seed) is not int or seed<0:
         raise ValueError('invalid generation counts or seed')
-    if split not in ('train','dev','probe','unseen_test'):
-        raise ValueError('formal test distribution not yet implemented')
+    if heldout_combo and split not in ('combo_test','probe'):
+        raise ValueError('held-out combinations cannot enter train/dev/id distributions')
+    if split=='combo_test' and (not heldout_combo or tuple(templates)!=('T07',)):
+        raise ValueError('combo distribution currently requires T07 held-out combination')
+    if split=='id_test' and any(template not in TRAIN_TEMPLATES for template in templates):
+        raise ValueError('ID test requires training templates')
     if split=='train' and any(template not in TRAIN_TEMPLATES for template in templates):
         raise ValueError('development template cannot enter training')
     if split=='dev' and any(not template.startswith('D') for template in templates):
@@ -43,13 +55,13 @@ def generate(out,templates=TRAIN_TEMPLATES,count_per_template=3,seed=None,split=
             public = dict(principal_id='assistant',required_participant_ids=['owner','client'],allowed_window_utc=[base+10000,base+20000],deadline_at=base+9000,title='Review '+str(number),requires_approval=template!='T01',approver_id='owner')
             nodes = ['plan','invite'] if template=='T01' else ['plan','confirm','invite']
             private, rules = {}, {}
-            if template in ('T08','U04'):
+            if template in ('T08','U04') or depth_level==3:
                 public.update(followup_required=True,deadline_at=base+25000)
                 action = dict(title='Send proposal '+str(number),assignee_id='owner',due_at=base+30000)
                 private['required_todos'] = [action]
                 rules['minutes_rules'] = {'*':{'delay_seconds':120,'action_items':[action]}}
                 nodes += ['meeting_end','minutes','todos']
-            if template in ('T02','D01'):
+            if template in ('T02','D01') or (depth_level is not None and depth_level>=2):
                 public['collect_availability'] = True
                 nodes.insert(1,'collect_replies')
                 rules['reply_rules'] = {person:{'availability':{'delay_seconds':180,'response':'provided','facts':{'available_windows':[[base+12000,base+18000]]}}} for person in ('owner','client')}
@@ -72,13 +84,24 @@ def generate(out,templates=TRAIN_TEMPLATES,count_per_template=3,seed=None,split=
                         payload['approver_id'] = 'replacement'
                         nodes += ['replacement_confirmation','updated_invite']
                 scheduled.append(dict(id='perturbation',due_at=base+1500,kind='MeetingRescheduleRequested' if template in ('T06','D02') else 'AttendeeChanged',payload=payload))
-            refs = [{'document_id':'agenda','version':1}] if template in ('T05','D02') else []
+            refs = [{'document_id':'agenda','version':1}] if template in ('T05','D02') or heldout_combo or (depth_level is not None and (depth_level>=2 or perturbation_level==2)) else []
             if refs:
                 public['required_document_refs'] = refs
                 nodes.insert(1,'read_material')
-            if template=='D02':
+            if template=='D02' or heldout_combo:
                 public['track_document_ids'] = ['agenda']
                 scheduled.append(dict(id='material_update',due_at=base+2200,kind='DocumentVersionPublished',payload={'document_id':'agenda','expected_version':1,'content':'Updated material '+str(number)}))
+            if depth_level is not None:
+                level = perturbation_level or 0
+                if level:
+                    public['monitor_until'] = base+5000
+                    scheduled.append(dict(id='scan_reschedule',due_at=base+2500,kind='MeetingRescheduleRequested',payload={'meeting_selector':{'organizer_id':'assistant','title':public['title']},'start_at':base+14000,'end_at':base+15800}))
+                if level==2:
+                    public['track_document_ids'] = ['agenda']
+                    scheduled.append(dict(id='scan_material',due_at=base+3500,kind='DocumentVersionPublished',payload={'document_id':'agenda','expected_version':1,'content':'Scan material update '+str(number)}))
+            signature = [event['kind'] for event in sorted(scheduled,key=lambda event:(event['due_at'],event['id']))]
+            if split=='train':
+                check_holdout(signature,HELDOUT_SIGNATURES)
             rules['approval_rules'] = {'owner':{'decision':'grant','delay_seconds':120}}
             if template=='U03':
                 rules['approval_rules']['owner']['required_preparation'] = public['preparation_todos']
@@ -111,11 +134,11 @@ def generate(out,templates=TRAIN_TEMPLATES,count_per_template=3,seed=None,split=
                         client.set_meta('public_task',public)
                         for key,value in rules.items():
                             client.set_meta(key,value)
-                    task = dict(instance_id=template+'_'+str(number),split=split,template_id=template,scenario_family_id='family_'+str(number),depth_level=3 if template in ('T08','U04') else 1,perturbation_level=len(scheduled),seed=number,public_task=public,dependency_dag={'nodes':nodes,'edges':list(zip(nodes,nodes[1:]))})
+                    task = dict(instance_id=template+'_'+str(number)+(('_D'+str(depth_level)+'P'+str(perturbation_level or 0)) if depth_level is not None else ''),split=split,template_id=template,scenario_family_id='family_'+str(number),depth_level=depth_level if depth_level is not None else (3 if template in ('T08','U04') else 1),perturbation_level=len(scheduled),event_signature=signature,seed=number,public_task=public,dependency_dag={'nodes':nodes,'edges':list(zip(nodes,nodes[1:]))})
                     entries.append(write_instance(root,task,world,private,dict(rules,scheduled_events=scheduled)))
                 finally:
                     world.close()
     validate_unique(entries)
-    manifest = dict(task_generator_version='generator-v1-development',status='partial_templates_not_frozen',instances=entries)
+    manifest = dict(task_generator_version='generator-v1-development',status='development_distribution_not_frozen',heldout_signatures=HELDOUT_SIGNATURES,instances=entries)
     (root/'manifest.json').write_text(canonical(manifest)+'\n')
     return manifest

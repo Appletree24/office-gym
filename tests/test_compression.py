@@ -42,3 +42,20 @@ class CompressionTests(unittest.TestCase):
             self.assertEqual(restored,original)
             self.assertEqual(info['summary_output_tokens'],0)
             self.assertEqual(policy.calls,1)
+
+    def test_invented_evidence_rejected_with_cost_retained(self):
+        import json
+        class Policy:
+            def summarize(self,messages,budget):
+                summary = {key:[] for key in FullContext.REQUIRED}
+                summary['confirmed'] = [{'fact':'approved','source_refs':['not_observed']}]
+                return dict(summary=summary,input_tokens=20,output_tokens=10,model_version='fixture',sampling_parameters={})
+        messages = [{'role':'system'},{'role':'user'}]
+        for i in range(3):
+            messages += [{'role':'assistant','tool_call':{'id':str(i)}},{'role':'tool','tool_call_id':str(i),'content':json.dumps({'meta':{'observation_id':'obs_'+str(i)}})}]
+        context = FullContext(lambda messages,schemas:len(messages)*10,200,Policy(),50,10)
+        context.set_budget({'generated_tokens':100})
+        selected,info = context.prepare(messages,[])
+        self.assertEqual(info['compression_failed'],'invalid_summary')
+        self.assertEqual(info['summary_output_tokens'],10)
+        self.assertEqual(selected,messages)

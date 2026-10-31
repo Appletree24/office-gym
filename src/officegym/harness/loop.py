@@ -35,6 +35,14 @@ class AssistantTurn:
     raw: object = None
 
 
+def initial_messages(task,full=False):
+    messages = [{'role':'system','content':'Execute the public task using tools. Tool observations are evidence; do not invent confirmations.'},
+                {'role':'user','content':canonical(task)}]
+    if full:
+        messages[0]['content'] += ' Maintain goals, constraints, evidence, blockers and waiting conditions with board tools; reconcile uncertain writes through operations.get.'
+    return messages
+
+
 class Harness:
     def __init__(self, policy, call, task, trace_path, budget=None, journal=None, context_manager=None):
         self.policy, self.call, self.task = policy, call, task
@@ -42,10 +50,7 @@ class Harness:
             raise ValueError('compression must use the same executing policy')
         self.context_manager = context_manager
         self.trace_path, self.budget, self.journal = trace_path, budget or Budget(), journal
-        self.messages = [{'role':'system','content':'Execute the public task using tools. Tool observations are evidence; do not invent confirmations.'},
-                         {'role':'user','content':canonical(task)}]
-        if journal:
-            self.messages[0]['content'] += ' Maintain goals, constraints, evidence, blockers and waiting conditions with board tools; reconcile uncertain writes through operations.get.'
+        self.messages = initial_messages(task,full=journal is not None)
         self.state = 'READY'
         self.prior_usage = dict(tool_calls=0,generated_tokens=0,input_tokens=0,wall_seconds=0)
         self.restored = False

@@ -55,3 +55,21 @@ class GeneratorTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     generate(root/'invalid',templates=[template],split='train')
                 self.assertFalse((root/'invalid').exists())
+
+    def test_heldout_combo_cannot_be_generated_in_training(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)/'tasks'
+            with self.assertRaisesRegex(ValueError,'held-out combinations'):
+                generate(root,templates=['T07'],split='train',heldout_combo=True)
+            self.assertFalse(root.exists())
+
+    def test_controlled_five_cell_scan_is_solvable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for depth,perturbation in ((1,1),(2,1),(3,1),(2,0),(2,2)):
+                manifest = generate(root/('d'+str(depth)+'p'+str(perturbation)),templates=['T04'],count_per_template=1,depth_level=depth,perturbation_level=perturbation)
+                entry = manifest['instances'][0]
+                self.assertEqual(entry['depth_level'],depth)
+                self.assertEqual(entry['perturbation_level'],perturbation)
+                self.assertEqual(entry['scenario_family_id'],'family_900000')
+                self.assertTrue(json.loads((root/('d'+str(depth)+'p'+str(perturbation))/entry['path']/'reference_grade.json').read_text())['full_success'])
