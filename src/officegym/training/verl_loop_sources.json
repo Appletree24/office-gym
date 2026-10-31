@@ -12,5 +12,10 @@
   "verl/workers/rollout/vllm_rollout/vllm_async_server.py": "32f1e3bc6fa1bccc7082a0a6901e12a713974dcf78f48129957cfea3679b21ac",
   "verl/workers/rollout/vllm_rollout/vllm_rollout.py": "e82e1c6782573e03c871b982eb0653801f54cb1647367a604aa8b1c5454773cb",
   "verl/checkpoint_engine/base.py": "97b51131a5770892007b7fb07264a2657fe83255b085927acd08c952a5682f64",
-  "verl/workers/rollout/router.py": "3c6f74df9fdaea7d1b6c71f0994ef70d47f951035cd61df77db719e815be9263"
+  "verl/workers/rollout/router.py": "3c6f74df9fdaea7d1b6c71f0994ef70d47f951035cd61df77db719e815be9263",
+  "verl/trainer/ppo/core_algos.py": "369b614f239f237a04a38a40b1877cd6fd14aa7bd5f9ff4fe4d7758b682a6948",
+  "verl/utils/model.py": "a13d8595499da87abee759fb5d5a31b5e70327c6c0523d49c86798832670d78f",
+  "verl/workers/config/actor.py": "d7631944b186f162b897022c9fac8b2f0ede7f8bb6cba4276d98e5d5033fd60b",
+  "verl/workers/config/model.py": "60786c806febec57e42331110476977d2137745461825e4c23b16dc549a222d6",
+  "verl/workers/config/rollout.py": "f62e366c906a152a2fc61328afb33c711125f036e05d82b82189333c4ffc47b4"
 }

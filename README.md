@@ -159,3 +159,14 @@ PYTHONPATH=src .venv-rl/bin/python -m officegym.training.native_inference_probe 
 ```
 
 当前 `native_ray_vllm_loop_probe_v1` 完成十次真实生成，独立 token 审计通过，HTTP 认证检查为 401／200，结束后 GPU 空闲。仍使用固定基模、standalone 模式和声明的第 0 步标签；不证明训练权重同步、KL、optimizer 更新或 worker 文件系统隔离。上限与 direct 探针相同，Ray 日志也计入产物预算，无付费 API。
+
+已归档真实轨迹的原生 worker 后处理／数学验收（CPU，不重新生成）：
+
+```bash
+PYTHONPATH=src RAY_USAGE_STATS_ENABLED=0 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
+  .venv-rl/bin/python -m officegym.training.worker_postprocess_probe \
+  --source artifacts/native_ray_vllm_loop_probe_v1 \
+  --model artifacts/qwen3_4b_base_cdbee75_v1/model --out artifacts/NEW_WORKER_REPLAY
+```
+
+当前 v3 验证真实 worker 构造、24 工具加载、原始 IDs/logprobs、padding、输入元数据和奖励落点。另有明确标注的人工奖励及 logprob 叶节点梯度对照；它们不是模型训练数据或模型参数更新。独立优势助手现与固定上游的样本标准差／epsilon 约定一致。完整 Ray worker 生成、实际权重同步与 GRPO 联训仍待验收。

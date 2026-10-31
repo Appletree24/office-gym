@@ -54,11 +54,15 @@ def collect_groups(sample_group, *, actor_version, target_groups, group_size=4, 
             'rollout_tokens':tokens,'refill_attempts':max(0,candidates-target_groups),'reward_histogram':dict(histogram)}
 
 
-def relative_advantages(rewards):
+def relative_advantages(rewards,*,epsilon=1e-6,norm_adv_by_std_in_grpo=True):
+    """Match pinned verl's sample-standard-deviation GRPO normalization."""
+    if type(epsilon) not in (int,float) or not math.isfinite(epsilon) or epsilon<=0 or type(norm_adv_by_std_in_grpo) is not bool:
+        raise ValueError('finite positive epsilon and explicit normalization mode required')
     if len(rewards)<2 or any(not math.isfinite(value) for value in rewards):
         raise ValueError('invalid rewards')
     mean = sum(rewards)/len(rewards)
-    variance = sum((value-mean)**2 for value in rewards)/len(rewards)
+    variance = sum((value-mean)**2 for value in rewards)/(len(rewards)-1)
     if variance==0:
         return [0.0]*len(rewards)
-    return [(value-mean)/math.sqrt(variance) for value in rewards]
+    denominator=math.sqrt(variance)+epsilon if norm_adv_by_std_in_grpo else 1.0
+    return [(value-mean)/denominator for value in rewards]
