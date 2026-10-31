@@ -16,7 +16,7 @@ SMOKE_CHECKS = {'isolated_worlds','native_token_ids','tool_loss_mask_zero','init
 
 
 def validate_launch(config,smoke=False):
-    required = {'verl_commit','verl_checkout','locked_packages','resolved_upstream_config','resolved_upstream_sha256','command','max_updates','max_wall_seconds','max_rollout_tokens','starting_checkpoint_hash','reference_checkpoint_hash','group_size','rollout_contract'}
+    required = {'verl_commit','verl_checkout','locked_packages','resolved_upstream_config','resolved_upstream_sha256','command','max_updates','max_wall_seconds','max_rollout_tokens','starting_checkpoint_hash','reference_checkpoint_hash','group_size','rollout_contract','prepared_rollouts'}
     if required-set(config):
         raise ValueError('missing locked launch fields: '+','.join(sorted(required-set(config))))
     if config['verl_commit']!=VERL_COMMIT:
@@ -59,6 +59,15 @@ def validate_launch(config,smoke=False):
     required_values = {'algorithm.adv_estimator':'grpo','actor_rollout_ref.rollout.n':config['group_size'],'trainer.total_training_steps':config['max_updates']}
     if any(values.get(key)!=value for key,value in required_values.items()):
         raise ValueError('resolved upstream algorithm/group/update budget mismatch')
+    preparation = json.loads(Path(config['prepared_rollouts']).read_text())
+    train_file = Path(preparation['train_file'])
+    if preparation.get('rollout_contract')!=config['rollout_contract'] or preparation.get('split')!='train':
+        raise ValueError('prepared rollout contract or split mismatch')
+    if not train_file.is_absolute() or hashlib.sha256(train_file.read_bytes()).hexdigest()!=preparation['train_sha256']:
+        raise ValueError('prepared rollout data hash mismatch')
+    train_files = values.get('data.train_files')
+    if train_files!=str(train_file) and train_files!=[str(train_file)]:
+        raise ValueError('upstream train files differ from bound rollout data')
     if not smoke:
         report = json.loads(Path(config['smoke_report']).read_text())
         if report.get('passed') is not True or not SMOKE_CHECKS <= set(report.get('passed_checks',[])):

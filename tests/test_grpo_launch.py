@@ -31,7 +31,25 @@ class LaunchTests(unittest.TestCase):
             upstream = Path(directory)/'resolved.json'
             upstream.write_text(json.dumps({'algorithm':{'adv_estimator':'grpo'},'actor_rollout_ref':{'rollout':{'n':4}},'trainer':{'total_training_steps':5}}))
             config = dict(verl_commit=VERL_COMMIT,verl_checkout=directory,locked_packages={},resolved_upstream_config=str(upstream),resolved_upstream_sha256=hashlib.sha256(upstream.read_bytes()).hexdigest(),command=['python','verified_entrypoint.py'],max_updates=5,max_wall_seconds=60,max_rollout_tokens=1000,starting_checkpoint_hash='sft_hash',reference_checkpoint_hash='sft_hash',group_size=4,rollout_contract=dict(token_ledger_path=str(Path(directory)/'tokens.sqlite'),artifact_root=directory,global_rollout_token_limit=1000,max_generation_tokens=100,max_context_tokens=8192,max_tool_calls=24,actor_version='sft_hash'))
+            train = Path(directory)/'train.jsonl'
+            train.write_text('{}\n')
+            preparation = Path(directory)/'preparation.json'
+            preparation.write_text(json.dumps(dict(train_file=str(train),train_sha256=hashlib.sha256(train.read_bytes()).hexdigest(),split='train',rollout_contract=config['rollout_contract'])))
+            config['prepared_rollouts'] = str(preparation)
+            resolved = json.loads(upstream.read_text())
+            resolved['data'] = dict(train_files=[str(train)])
+            upstream.write_text(json.dumps(resolved))
+            config['resolved_upstream_sha256'] = hashlib.sha256(upstream.read_bytes()).hexdigest()
             self.assertEqual(validate_launch(config,smoke=True),config['command'])
+            train.write_text('{"tampered":true}\n')
+            with self.assertRaisesRegex(ValueError,'data hash mismatch'):
+                validate_launch(config,smoke=True)
+            train.write_text('{}\n')
+            resolved['data']['train_files'] = ['/another/train.jsonl']
+            upstream.write_text(json.dumps(resolved))
+            config['resolved_upstream_sha256'] = hashlib.sha256(upstream.read_bytes()).hexdigest()
+            with self.assertRaisesRegex(ValueError,'train files differ'):
+                validate_launch(config,smoke=True)
             config['group_size'] = 2
             with self.assertRaisesRegex(ValueError,'algorithm/group/update'):
                 validate_launch(config,smoke=True)
