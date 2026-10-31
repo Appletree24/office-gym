@@ -34,3 +34,5 @@ RS-SFT 分支提供 `python -m officegym.training.rs_sft collect --help` 和 `bu
 SFT/RS-SFT 的解析训练计划还必须提供 `checkpoint_interval_steps`，取值为 1 到 `max_steps`。入口按固定步数保存且不自动删除周期 checkpoint，追加 `training_events.jsonl` 并保留 `trainer_log_history.json`；周期 checkpoint 和最终 adapter 会记录文件哈希。它们仍需 merged 导出及等价性验证后才能进入 dev 选择流程。
 
 非 base 的 `record_export` 还要求原始 checkpoint 路径、`training_events` 和 `optimizer_step`。等价性报告须绑定导出模型哈希、原始 checkpoint 文件哈希和步数。选择规则 v2 会复核这些来源；已有日志允许继续追加，但对应 checkpoint 和已绑定的日志前缀不能修改。文件溯源检查不替代实际 logits、生成和工具行为等价性实验。
+
+LoRA merged 导出入口：`python -m officegym.training.merge --help`。解析计划须提供本地 base/adapter、基础模型内容哈希、训练事件与步数、精确依赖版本、设备/精度、时间上限及 shard/export 字节上限。命令在独立进程中合并并保存独立模型和 tokenizer；保存前检查 tensor 字节数，保存后核对实际导出大小，超限保留失败现场。`merge_result.json` 明确保留 `passed: false`，直到固定样本 logits、生成和工具行为等价性另行验证；不能把完成合并当作导出验收通过。
