@@ -1,5 +1,5 @@
 """Strict SFT alignment using native masks and source-locked annotations."""
-from officegym.harness.policy import render_messages
+from officegym.harness.policy import render_template_messages
 from .data import RejectedTrajectory,verify_mask
 from .mask_templates import annotated_template,ADAPTER_VERSION
 import hashlib
@@ -17,12 +17,12 @@ class SFTTokenizer:
     def mask_manifest(self):
         source=self.source_template
         adapted=self.mask_template or source
-        return dict(strategy=ADAPTER_VERSION if self.mask_template else 'native_generation_mask',source_template_sha256=hashlib.sha256(source.encode()).hexdigest() if isinstance(source,str) else None,mask_template_sha256=hashlib.sha256(adapted.encode()).hexdigest() if isinstance(adapted,str) else None)
+        return dict(message_normalization='decoded-canonical-tool-arguments-v1',strategy=ADAPTER_VERSION if self.mask_template else 'native_generation_mask',source_template_sha256=hashlib.sha256(source.encode()).hexdigest() if isinstance(source,str) else None,mask_template_sha256=hashlib.sha256(adapted.encode()).hexdigest() if isinstance(adapted,str) else None)
 
     def __call__(self,messages,tools):
         if self.mask_template and getattr(self.tokenizer,'chat_template',None)!=self.source_template:
             raise RejectedTrajectory('mask_annotation_source_changed')
-        rendered = render_messages(messages)
+        rendered = render_template_messages(messages)
         schemas = [{'type':'function','function':{'name':tool['name'],'description':tool['description'],'parameters':tool['inputSchema']}} for tool in tools]
         mask_kwargs=dict(self.kwargs)
         if self.mask_template:

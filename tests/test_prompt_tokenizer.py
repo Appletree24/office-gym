@@ -19,7 +19,7 @@ class PromptTokenizerTests(unittest.TestCase):
         self.assertEqual(counter(messages,schemas),5)
         self.assertEqual(counter.token_ids(messages,schemas),[10,20,30,40,50])
         rendered,kwargs = tokenizer.captured
-        self.assertEqual(rendered[0]['tool_calls'][0]['function']['arguments'],'{}')
+        self.assertEqual(rendered[0]['tool_calls'][0]['function']['arguments'],{})
         self.assertTrue(kwargs['tokenize'])
         self.assertTrue(kwargs['add_generation_prompt'])
         self.assertEqual(kwargs['tools'][0]['function']['name'],'board.read')

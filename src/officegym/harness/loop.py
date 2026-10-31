@@ -46,7 +46,7 @@ class AssistantTurn:
 
 
 def initial_messages(task,full=False):
-    messages = [{'role':'system','content':'Execute the public task using tools. Tool observations are evidence; do not invent confirmations.'},
+    messages = [{'role':'system','content':'Execute the public task using tools. Return exactly one tool call per response, then wait for its observation before choosing the next call. Tool observations are evidence; do not invent confirmations.'},
                 {'role':'user','content':canonical(task)}]
     if full:
         messages[0]['content'] += ' Maintain goals, constraints, evidence, blockers and waiting conditions with board tools; reconcile uncertain writes through operations.get.'

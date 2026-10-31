@@ -1,1 +1,1 @@
-HARNESS_VERSION = 'harness-v6-public-event-observations'
+HARNESS_VERSION = 'harness-v8-serial-tools-native-history'

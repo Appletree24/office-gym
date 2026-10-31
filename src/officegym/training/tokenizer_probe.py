@@ -9,7 +9,7 @@ from pathlib import Path
 import time
 from officegym.env.world import canonical
 from officegym.harness.loop import initial_messages
-from officegym.harness.policy import render_messages
+from officegym.harness.policy import render_template_messages
 from officegym.harness.tokenizer import PromptTokenizer
 from officegym.tools.schema import tool_schemas
 from .tokenizer import SFTTokenizer
@@ -17,7 +17,7 @@ from .tokenizer import SFTTokenizer
 
 def expected_qwen_actor_text(messages):
     chunks=[]
-    for message in render_messages(messages):
+    for message in render_template_messages(messages):
         if message['role']!='assistant':
             continue
         content=message.get('content') or ''
@@ -26,7 +26,7 @@ def expected_qwen_actor_text(messages):
             function=call['function']
             if content or index:
                 text+='\n'
-            text+='<tool_call>\n{"name": "'+function['name']+'", "arguments": '+function['arguments']+'}\n</tool_call>'
+            text+='<tool_call>\n{"name": "'+function['name']+'", "arguments": '+json.dumps(function['arguments'],ensure_ascii=False)+'}\n</tool_call>'
         chunks.append(text+'<|im_end|>')
     return ''.join(chunks)
 
@@ -86,7 +86,7 @@ def run(tokenizer_path,revision,out,*,dataset_manifest=None,max_wall_seconds=180
                 for index,action in enumerate(trace):
                     identity=str(index)
                     messages.extend([dict(role='assistant',tool_call=dict(id=identity,name=action['tool'],arguments=action['arguments'])),dict(role='tool',tool_call_id=identity,content=canonical(action['result']))])
-                ids=prompt.tokenizer.apply_chat_template(render_messages(messages),tools=schemas,tokenize=True,add_generation_prompt=False)
+                ids=prompt.tokenizer.apply_chat_template(render_template_messages(messages),tools=schemas,tokenize=True,add_generation_prompt=False)
                 row=dict(instance_id=entry['instance_id'],split=entry['split'],template_id=entry['template_id'],initial_simple_tokens=prompt(simple,tools),initial_full_tokens=initial_full,reference_complete_tokens=len(ids),reference_tool_calls=len(trace),reference_exceeds_sft_8192=len(ids)>8192)
                 lengths.append(row);stream.write(canonical(row)+'\n');stream.flush()
                 if len(lengths)%200==0:

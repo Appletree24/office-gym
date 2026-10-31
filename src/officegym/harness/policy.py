@@ -23,6 +23,20 @@ def render_messages(messages):
     return rendered
 
 
+def render_template_messages(messages):
+    """Match vLLM 0.11/OpenAI history normalization before native templating.
+
+    The HTTP representation keeps argument strings; native templates receive
+    decoded objects. Decode the canonical wire string to preserve its key order.
+    """
+    rendered = render_messages(messages)
+    for message in rendered:
+        for call in message.get('tool_calls', []):
+            function = call['function']
+            function['arguments'] = json.loads(function['arguments'])
+    return rendered
+
+
 def response_message(response):
     choices = response.get('choices')
     if not isinstance(choices,list) or len(choices)!=1 or not isinstance(choices[0],dict):
@@ -53,7 +67,7 @@ class ChatPolicy:
             if not key:
                 raise ValueError('configured credential environment variable is unset')
             headers['Authorization'] = 'Bearer '+key
-        request = Request(self.endpoint,data=canonical(payload).encode(),headers=headers,method='POST')
+        request = Request(self.endpoint,data=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode(),headers=headers,method='POST')
         with urlopen(request,timeout=timeout) as response:
             return json.load(response)
 

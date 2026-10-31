@@ -1,7 +1,7 @@
 """Exact prompt sizing with the same locked tokenizer/template as inference."""
 import hashlib
 import json
-from .policy import render_messages
+from .policy import render_template_messages
 
 
 class PromptTokenizer:
@@ -25,7 +25,7 @@ class PromptTokenizer:
 
     def token_ids(self,messages,schemas):
         tools = [{'type':'function','function':{'name':tool['name'],'description':tool['description'],'parameters':tool['inputSchema']}} for tool in schemas]
-        ids = self.tokenizer.apply_chat_template(render_messages(messages),tools=tools,tokenize=True,add_generation_prompt=True,**self.template_kwargs)
+        ids = self.tokenizer.apply_chat_template(render_template_messages(messages),tools=tools,tokenize=True,add_generation_prompt=True,**self.template_kwargs)
         if not isinstance(ids,list) or any(type(token) is not int for token in ids):
             raise ValueError('tokenizer must return one original flat ID sequence')
         return ids
@@ -36,4 +36,4 @@ class PromptTokenizer:
     def manifest(self):
         vocabulary = self.tokenizer.get_vocab()
         vocab_hash = hashlib.sha256(json.dumps(vocabulary,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()
-        return {'model_revision':self.model_revision,'chat_template_sha256':self.template_sha256,'vocabulary_sha256':vocab_hash,'template_kwargs':self.template_kwargs}
+        return {'model_revision':self.model_revision,'chat_template_sha256':self.template_sha256,'vocabulary_sha256':vocab_hash,'template_kwargs':self.template_kwargs,'message_normalization':'decoded-canonical-tool-arguments-v1'}

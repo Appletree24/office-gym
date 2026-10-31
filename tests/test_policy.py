@@ -61,3 +61,36 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(turn.content,'I will finish now.')
         message={'role':'assistant','content':turn.content,'tool_call':{'id':'1','name':turn.tool,'arguments':turn.arguments}}
         self.assertEqual(render_messages([message])[0]['content'],'I will finish now.')
+
+    def test_http_round_trip_preserves_native_schema_key_order(self):
+        import io
+        import json
+        from unittest.mock import patch
+        captured=[]
+        def post(request,timeout):
+            captured.append(json.loads(request.data))
+            return io.BytesIO(json.dumps(dict(choices=[dict(message=dict(tool_calls=[dict(function=dict(name='board.read',arguments='{}'))]))],usage=dict(prompt_tokens=10,completion_tokens=3))).encode())
+        schema=dict(type='object',properties={'z':{'type':'string'},'a':{'type':'integer'}},required=['z'],additionalProperties=False)
+        policy=ChatPolicy('http://127.0.0.1/fixture','fixture','fixture')
+        with patch('officegym.harness.policy.urlopen',side_effect=post):
+            policy.generate([dict(role='user',content='fixture')],[dict(name='fixture',description='fixture',inputSchema=schema)],dict(generated_tokens=10,wall_seconds=1))
+        actual=captured[0]['tools'][0]['function']['parameters']
+        self.assertEqual(list(actual),list(schema))
+        self.assertEqual(list(actual['properties']),['z','a'])
+
+    def test_template_history_decodes_wire_arguments_without_mutating_input(self):
+        from officegym.harness.policy import render_template_messages
+        messages=[dict(role='assistant',tool_call=dict(id='one',name='fixture',arguments={'z':'中文','a':{'nested':True}}))]
+        wire=render_messages(messages)[0]['tool_calls'][0]['function']['arguments']
+        native=render_template_messages(messages)[0]['tool_calls'][0]['function']['arguments']
+        self.assertIsInstance(wire,str)
+        self.assertEqual(native,messages[0]['tool_call']['arguments'])
+        self.assertEqual(list(native),['a','z'])
+        self.assertEqual(list(messages[0]['tool_call']['arguments']),['z','a'])
+
+    def test_multiple_calls_rejected_without_discarding_usage(self):
+        response=dict(choices=[dict(message=dict(tool_calls=[dict(function=dict(name='board.read',arguments='{}'))]*2))],usage=dict(prompt_tokens=20,completion_tokens=30))
+        turn=ChatPolicy('fixture','fixture','fixture',transport=lambda *args:response).generate([],[],dict(generated_tokens=100,wall_seconds=5))
+        self.assertIsNone(turn.tool)
+        self.assertEqual((turn.input_tokens,turn.output_tokens),(20,30))
+        self.assertEqual(turn.raw,response)
