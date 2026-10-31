@@ -62,7 +62,21 @@ async def worker(fetch_root,batch_root,out):
             digest=hashlib.sha256()
             for name,param in sorted(adapters.items()):digest.update(name.encode());digest.update(local(param).detach().cpu().contiguous().view(torch.uint8).numpy().tobytes())
             return digest.hexdigest()
+        def export_adapter(label):
+            from safetensors.torch import save_file,load_file
+            weights,peft_config=engine.get_per_tensor_param(layered_summon=True,base_sync_done=True)
+            exported={name:value.detach().cpu().contiguous().clone() for name,value in weights}
+            expected={name.replace('.default.','.'):local(value).detach().cpu() for name,value in adapters.items()}
+            if exported.keys()!=expected.keys() or any(not torch.equal(exported[name],value) for name,value in expected.items()):
+                raise ValueError('native rollout adapter extraction differs from actual trainable parameters')
+            path=root/(label+'_adapter.safetensors');save_file(exported,str(path))
+            reloaded=load_file(str(path))
+            if any(not torch.equal(reloaded[name],value) for name,value in expected.items()):raise ValueError('adapter serialization changed tensors')
+            normalized=json.loads(json.dumps(peft_config,default=lambda value:sorted(value) if isinstance(value,set) else str(value)))
+            write_json(root/(label+'_adapter_config.json'),normalized)
+            return dict(tensor_count=len(exported),bytes=path.stat().st_size,sha256=hashlib.sha256(path.read_bytes()).hexdigest(),layered_summon=True,base_sync_done=True,actual_parameter_equality=True)
         initial_hash=fingerprint()
+        initial_export=export_adapter('initial')
         if not adapters or any(local(p).count_nonzero() for n,p in adapters.items() if 'lora_B' in n):raise ValueError('initial LoRA B is not zero')
         def infer(disabled=False):
             with engine.eval_mode(),engine.disable_adapter() if disabled else nullcontext():
@@ -92,6 +106,7 @@ async def worker(fetch_root,batch_root,out):
         with torch.no_grad():
             for name,param in adapters.items():
                 if 'lora_B' in name:local(param).fill_(.01)
+        perturbed_export=export_adapter('perturbed')
         changed=infer();fixed_reference=infer(True)
         if not torch.equal(reference,fixed_reference):raise ValueError('reference changed when actor adapter was perturbed')
         change=(changed-reference)[mask].abs().max().item()
@@ -102,7 +117,7 @@ async def worker(fetch_root,batch_root,out):
         if not torch.equal(restored,actor) or fingerprint()!=initial_hash:raise ValueError('adapter restoration changed initial policy')
         if any(param.grad is not None for param in engine.module.parameters()):raise ValueError('inference unexpectedly produced gradients')
         write_json(root/'logprob_vectors.json',dict(actor=actor.tolist(),reference=reference.tolist(),perturbed_actor=changed.tolist(),fixed_reference=fixed_reference.tolist(),restored_actor=restored.tolist(),response_mask=tensors['response_mask'].tolist()))
-        write_json(root/'report.json',dict(passed=True,kind='native-fsdp2-initial-actor-base-reference-not-formal-grpo',native_engine_class=type(engine).__module__+'.'+type(engine).__name__,model_revision=plan['revision'],source_batch_sha256=hashlib.sha256((batch_root/'native_batch_tensors.json').read_bytes()).hexdigest(),recompute_temperature=1.,independent_causal_alignment_max_error=alignment_error,source_rows=2,unique_source_sequences=len({tuple(row) for row in arrays['input_ids']}),source_sampling_temperature=json.loads((batch_root/'worker_config_raw.json').read_text())['actor_rollout_ref']['rollout']['temperature'],cross_backend_logprob_equivalence_verified=False,actor_reference_sampled_logprob_difference_max=float(delta.abs().max()),actor_reference_recorded_action_logratio_mean=float(delta.mean()),negative_adapter_control_max_logprob_difference=change,reference_unchanged_under_adapter_perturbation=True,adapter_restored=True,adapter_tensor_count=len(adapters),initial_adapter_sha256=initial_hash,optimizer_updates=0,model_generations=0,teacher_samples=0,reference_is_admitted_sft=False,full_vocabulary_kl_computed=False,peak_cuda_allocated_bytes=torch.cuda.max_memory_allocated()))
+        write_json(root/'report.json',dict(passed=True,kind='native-fsdp2-initial-actor-base-reference-not-formal-grpo',native_adapter_exports=dict(initial=initial_export,perturbed=perturbed_export),physical_rollout_weight_sync_verified=False,native_engine_class=type(engine).__module__+'.'+type(engine).__name__,model_revision=plan['revision'],source_batch_sha256=hashlib.sha256((batch_root/'native_batch_tensors.json').read_bytes()).hexdigest(),recompute_temperature=1.,independent_causal_alignment_max_error=alignment_error,source_rows=2,unique_source_sequences=len({tuple(row) for row in arrays['input_ids']}),source_sampling_temperature=json.loads((batch_root/'worker_config_raw.json').read_text())['actor_rollout_ref']['rollout']['temperature'],cross_backend_logprob_equivalence_verified=False,actor_reference_sampled_logprob_difference_max=float(delta.abs().max()),actor_reference_recorded_action_logratio_mean=float(delta.mean()),negative_adapter_control_max_logprob_difference=change,reference_unchanged_under_adapter_perturbation=True,adapter_restored=True,adapter_tensor_count=len(adapters),initial_adapter_sha256=initial_hash,optimizer_updates=0,model_generations=0,teacher_samples=0,reference_is_admitted_sft=False,full_vocabulary_kl_computed=False,peak_cuda_allocated_bytes=torch.cuda.max_memory_allocated()))
     finally:
         torch.distributed.destroy_process_group()
 
