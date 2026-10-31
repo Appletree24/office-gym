@@ -1,4 +1,5 @@
 """Training trajectory gates independent of a particular tokenizer framework."""
+from officegym.graders.versions import require_current_scoring
 import hashlib
 from officegym.env.world import canonical
 
@@ -17,6 +18,10 @@ def build_sample(trajectory, tokenize, max_length=8192):
         raise RejectedTrajectory('non_training_split')
     if not trajectory.get('grade',{}).get('full_success'):
         raise RejectedTrajectory('not_verified_success')
+    try:
+        require_current_scoring(trajectory['grade'])
+    except ValueError as exc:
+        raise RejectedTrajectory('stale_scoring_version') from exc
     if trajectory.get('compacted') or trajectory.get('recovered'):
         raise RejectedTrajectory('compressed_or_recovered')
     if not trajectory.get('instance_id') or not trajectory.get('messages'):

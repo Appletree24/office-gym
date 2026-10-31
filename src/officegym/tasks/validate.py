@@ -1,4 +1,5 @@
 """Validate concrete dataset artifacts, not merely intended template counts."""
+from officegym.graders.versions import require_current_scoring
 import hashlib
 import json
 import sqlite3
@@ -45,6 +46,7 @@ def validate_dataset(manifest_path):
         if depth != task['dependency_path_length']:
             raise ValueError('dependency depth mismatch')
         grade = json.loads((directory/'reference_grade.json').read_text())
+        require_current_scoring(grade)
         if not grade.get('full_success'):
             raise ValueError('reference did not pass')
         trace = [json.loads(line) for line in (directory/'reference_trace.jsonl').read_text().splitlines() if line.strip()]

@@ -2,6 +2,7 @@
 
 Requires a separately installed, operator-locked training environment. No downloads.
 """
+from officegym.graders.versions import require_current_scoring
 import hashlib
 import importlib.metadata
 import json
@@ -27,6 +28,7 @@ def validate_plan(plan,data_dir):
     manifest = json.loads((Path(data_dir)/'manifest.json').read_text())
     if manifest.get('manual_alignment_review_status')!='passed' or not manifest['accepted']:
         raise ValueError('nonempty dataset and completed manual mask review required')
+    require_current_scoring(manifest)
     samples = Path(data_dir)/'samples.jsonl'
     if hashlib.sha256(samples.read_bytes()).hexdigest()!=manifest['samples_sha256']:
         raise ValueError('SFT sample hash mismatch')

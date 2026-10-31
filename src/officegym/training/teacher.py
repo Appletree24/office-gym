@@ -1,4 +1,5 @@
 """Recover SFT conversational source from a measured teacher episode."""
+from officegym.graders.versions import require_current_scoring
 import hashlib
 import json
 from pathlib import Path
@@ -14,6 +15,10 @@ def extract_trajectory(run_dir):
         raise RejectedTrajectory('non_training_split')
     if result.get('policy_kind')!='inference_service':
         raise RejectedTrajectory('not_a_model_trajectory')
+    try:
+        require_current_scoring(result.get('grade',{}))
+    except ValueError as exc:
+        raise RejectedTrajectory('stale_scoring_version') from exc
     if not result['grade']['full_success'] or result['termination']['state']!='DECLARED_DONE' or not result['operation_audit']['consistent']:
         raise RejectedTrajectory('not_verified_success')
     trace_path = root/'trajectory.jsonl'
