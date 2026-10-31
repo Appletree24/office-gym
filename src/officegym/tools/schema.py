@@ -1,8 +1,8 @@
 """Shared public input schemas and strict validation for all transport adapters."""
 import json
-from pathlib import Path
+from officegym.resources import read_text
 
-CONTRACT = json.loads((Path(__file__).resolve().parents[3]/'contracts/tools.json').read_text())
+CONTRACT = json.loads(read_text('tools.json'))
 STRINGS = {'query','thread_id','meeting_id','document_id','approval_id','operation_id','kind','subject','body','title','content','reason','assignee_id','source_meeting_id','todo_id','approver_id','summary','cursor','after_message_id'}
 INTEGERS = {'start_at','end_at','version','expected_version','meeting_version','due_at','until','after_seq','limit'}
 ARRAYS = {'person_ids','participant_ids','recipient_ids','document_refs','attachment_refs'}

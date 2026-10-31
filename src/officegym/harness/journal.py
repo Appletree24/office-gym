@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from officegym.env.world import canonical
+from officegym.resources import read_text
 from officegym.tools.schema import WRITES
 
 
@@ -20,7 +21,7 @@ class Journal:
         self.db = sqlite3.connect(path)
         self.db.row_factory = sqlite3.Row
         if not self.db.execute("SELECT 1 FROM sqlite_master WHERE name='write_intents'").fetchone():
-            self.db.executescript((Path(__file__).resolve().parents[3]/'schema/runtime.sql').read_text())
+            self.db.executescript(read_text('runtime.sql'))
         self.db.execute('PRAGMA synchronous=FULL')
 
     def prepare(self, tool, args):

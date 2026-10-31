@@ -3,6 +3,7 @@ import hashlib
 import json
 import sqlite3
 from pathlib import Path
+from officegym.resources import read_text
 
 
 def canonical(value):
@@ -26,8 +27,8 @@ class World:
             raise ValueError('deadline precedes initial time')
         path.parent.mkdir(parents=True, exist_ok=True)
         world = cls(path)
-        ddl = Path(schema) if schema else Path(__file__).resolve().parents[3] / 'schema/world.sql'
-        world.db.executescript(ddl.read_text())
+        ddl = Path(schema).read_text() if schema else read_text('world.sql')
+        world.db.executescript(ddl)
         with world.db:
             for key, value in dict(sim_time=sim_time, deadline=deadline,
                                    principal_id=principal_id, env_version='env-v1',

@@ -13,3 +13,9 @@ where = ["src"]
 
 [project.optional-dependencies]
 mcp = ["mcp==1.30.0"]
+
+[project.scripts]
+officegym = "officegym.cli:main"
+
+[tool.setuptools.package-data]
+"officegym.resources" = ["*.sql", "*.json"]

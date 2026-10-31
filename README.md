@@ -1,6 +1,6 @@
 # OfficeGym
 
-按《OFFICEGYM_IMPLEMENTATION.md》持续实施的可重置办公任务研究环境。目前具备 CPU 业务环境、独立评分器初版、参考任务探针、预算化 Harness 基础及真实 worker-kill 恢复探针。完整模板、MCP、模型训练及冻结评测尚未完成；没有模型效果或训练提升结论。
+按《OFFICEGYM_IMPLEMENTATION.md》持续实施的可重置办公任务研究环境。目前具备 24 个工具、14 个模板生成器、独立评分器、官方 MCP 适配器、预算化 Harness、真实 worker-kill 恢复探针，以及尚待真实后端验证的训练入口。正式数据冻结、模型训练及完整评测尚未完成；没有模型效果或训练提升结论。
 
 Python 3.11+，当前 CPU 实现仅依赖标准库。项目目录中执行：
 
@@ -17,3 +17,12 @@ PYTHONPATH=src .venv/bin/python -m officegym.cli probe-fault --out artifacts/fau
 原始设计与命令合同见 OFFICEGYM_IMPLEMENTATION.md；阶段要求见 IMPLEMENTATION_HANDOFF.md；剩余范围见 IMPLEMENTATION_STATUS.md。configs 中 null 预算不表示无限许可，训练配置仍需按实际安装版本映射及验证。统计脚本要求完整运行计划和真实结果，禁止将示例或探针数据写成正式评测。
 
 MCP（官方 SDK 1.30.0，依赖见 requirements-env.lock）：先以 `serve-world --world EPISODE.sqlite --socket /private/world.sock` 启动固定世界，再以 `serve-mcp --socket /private/world.sock` 启动 stdio 适配器。两者命令均使用 `PYTHONPATH=src .venv/bin/python -m officegym.cli` 前缀。写工具 operation_id 由可信 Harness 放在 MCP `_meta["officegym/operation_id"]`，不放入模型工具参数。客户端仅消费 structuredContent；stdio stdout 专用于协议。
+
+安装后可在任意工作目录使用命令，无需设置 `PYTHONPATH`：
+
+```bash
+python -m pip install .
+officegym probe-reference --out /tmp/officegym-reference-new
+```
+
+核心运行时只依赖标准库；MCP 使用 `python -m pip install '.[mcp]'`。SQL 和工具契约随 wheel 发布，仓库中的 `schema/*.sql` 与 `contracts/tools.json` 是包内资源的符号链接。wheel 已在隔离环境、仓库外验证参考探针及持久化 journal。训练和推理依赖仍须按手册在各自环境中锁定并通过真实 smoke test。
