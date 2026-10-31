@@ -79,5 +79,12 @@ def dependency_depth(nodes, edges):
 def check_holdout(event_signature, forbidden_signatures):
     # Event order is substantive: signatures are ordered, not sets.
     signature = tuple(event_signature)
-    if signature in {tuple(item) for item in forbidden_signatures}:
-        raise ValueError('held-out event combination in training instance')
+    for forbidden in forbidden_signatures:
+        if not forbidden:
+            raise ValueError('empty held-out event signature')
+        position = 0
+        for kind in signature:
+            if kind==forbidden[position]:
+                position += 1
+                if position==len(forbidden):
+                    raise ValueError('held-out event combination in training instance')

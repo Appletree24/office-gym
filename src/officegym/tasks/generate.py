@@ -5,6 +5,7 @@ from officegym.env.world import World,canonical
 from officegym.tools.dispatcher import Dispatcher
 from .artifacts import write_instance
 from .integrity import validate_unique,check_holdout
+from .dependencies import dependency_edges
 
 TRAIN_TEMPLATES = ('T01','T02','T03','T04','T05','T06','T07','T08')
 SUPPORTED = TRAIN_TEMPLATES + ('D01','D02','U01','U02','U03','U04')
@@ -136,7 +137,7 @@ def generate(out,templates=TRAIN_TEMPLATES,count_per_template=3,seed=None,split=
                         client.set_meta('public_task',public)
                         for key,value in rules.items():
                             client.set_meta(key,value)
-                    task = dict(instance_id=template+'_'+str(number)+(('_D'+str(depth_level)+'P'+str(perturbation_level or 0)) if depth_level is not None else ''),split=split,template_id=template,scenario_family_id='family_'+str(number),depth_level=depth_level if depth_level is not None else (3 if template in ('T08','U04') else 1),perturbation_level=len(scheduled),event_signature=signature,seed=number,public_task=public,dependency_dag={'nodes':nodes,'edges':list(zip(nodes,nodes[1:]))})
+                    task = dict(instance_id=template+'_'+str(number)+(('_D'+str(depth_level)+'P'+str(perturbation_level or 0)) if depth_level is not None else ''),split=split,template_id=template,scenario_family_id='family_'+str(number),depth_level=depth_level if depth_level is not None else (3 if template in ('T08','U04') else 1),perturbation_level=len(scheduled),event_signature=signature,seed=number,public_task=public,dependency_dag={'nodes':nodes,'edges':dependency_edges(nodes)})
                     entries.append(write_instance(root,task,world,private,dict(rules,scheduled_events=scheduled)))
                 finally:
                     world.close()
