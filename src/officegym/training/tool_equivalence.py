@@ -12,7 +12,7 @@ from officegym.tasks.validate import validate_dataset
 from officegym.eval.analysis import validate_row,VERSION_FIELDS
 from officegym.eval.export import result_row
 from officegym.eval.plan import missing_runs,run_key,FIELDS
-from .equivalence import validate as validate_numeric,digest
+from .equivalence import validate as validate_numeric,digest,replay_comparisons,replay_control
 
 
 def read_rows(path):
@@ -24,20 +24,17 @@ def numeric_evidence(report_path,plan_path):
     _,merged,probes=validate_numeric(plan)
     if report.get('plan_sha256')!=digest(plan_path) or report.get('passed_numeric') is not True or report.get('exported_checkpoint_sha256')!=merged['exported_checkpoint_sha256'] or report.get('source_checkpoint_files_sha256')!=merged['training_source']['source_checkpoint_files_sha256'] or report.get('optimizer_step')!=merged['training_source']['optimizer_step']:
         raise ValueError('numerical evidence is failed or bound to another export/source')
-    if report.get('logit_positions')!='last_input_token_full_vocabulary' or report.get('thresholds')!={'logit_atol':plan['logit_atol'],'min_generation_match_rate':plan['min_generation_match_rate']}:
+    if report.get('logit_positions')!='last_input_token_full_vocabulary' or report.get('thresholds')!={'logit_atol':plan['logit_atol'],'logit_rtol':plan.get('logit_rtol',0),'min_generation_match_rate':plan['min_generation_match_rate']}:
         raise ValueError('numerical report scope/thresholds differ from frozen plan')
-    expected=[probe['case_id'] for probe in probes]
-    for side in ('before','after'):
-        if [row['case_id'] for row in report[side]]!=expected:
-            raise ValueError('incomplete numerical source artifacts')
-        for row in report[side]:
-            if digest(row['artifact'])!=row['sha256']:
-                raise ValueError('numerical source artifact changed')
-    if [row['case_id'] for row in report['comparisons']]!=expected:
-        raise ValueError('incomplete numerical comparisons')
-    generation=sum(left['generated_ids']==right['generated_ids'] for left,right in zip(report['before'],report['after']))/len(expected)
-    if generation<plan['min_generation_match_rate'] or any(row['logits'].get('finite') is not True or row['logits'].get('within_tolerance') is not True or type(row['logits'].get('max_abs_error')) not in (int,float) or not math.isfinite(row['logits']['max_abs_error']) or not 0<=row['logits']['max_abs_error']<=plan['logit_atol'] for row in report['comparisons']):
+    vocab=json.loads((Path(merged['model_path'])/'config.json').read_text())['vocab_size']
+    comparisons=replay_comparisons(report,probes,vocab,plan['logit_atol'],plan.get('logit_rtol',0))
+    if not replay_control(report,probes,vocab,plan['logit_atol'],plan.get('logit_rtol',0),plan.get('negative_control')):raise ValueError('negative control was not detected')
+    generation=sum(row['generation_equal'] for row in comparisons)/len(comparisons)
+    if report.get('generation_match_rate')!=generation or generation<plan['min_generation_match_rate'] or any(not row['logits']['within_tolerance'] for row in comparisons):
         raise ValueError('numerical metrics do not satisfy frozen thresholds')
+    records=report['before']+report['after']
+    if plan.get('negative_control'):records+=report['negative_control']['records']
+    if any(len(row['generated_ids'])>plan['max_new_tokens'] for row in records):raise ValueError('numerical generation budget exceeded')
     return report
 
 

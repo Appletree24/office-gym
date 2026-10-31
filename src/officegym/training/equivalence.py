@@ -15,15 +15,61 @@ def digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def compare_logits(left,right,atol):
+NUMERIC_REPORT_VERSION='numeric-v2-replayable-elementwise'
+
+
+def compare_logits(left,right,atol,rtol=0):
+    """Compare candidate right against reference left, like allclose(right,left)."""
     if not left or len(left)!=len(right):
         raise ValueError('unaligned nonempty probe logits')
-    if type(atol) not in (int,float) or not math.isfinite(atol) or atol<0:
-        raise ValueError('finite nonnegative logit tolerance required')
+    if any(type(v) not in (int,float) or not math.isfinite(v) or v<0 for v in (atol,rtol)):
+        raise ValueError('finite nonnegative logit tolerances required')
     if any(type(value) not in (int,float) or not math.isfinite(value) for value in left+right):
-        return dict(finite=False,max_abs_error=None,within_tolerance=False)
-    error=max(abs(a-b) for a,b in zip(left,right))
-    return dict(finite=True,max_abs_error=error,within_tolerance=error<=atol)
+        return dict(finite=False,max_abs_error=None,max_scaled_error=None,violating_elements=None,elements=len(left),within_tolerance=False)
+    errors=[abs(a-b) for a,b in zip(left,right)]
+    bounds=[atol+rtol*abs(a) for a in left]
+    if any(not math.isfinite(v) for v in errors+bounds):
+        raise ValueError('nonfinite elementwise error/budget')
+    violations=sum(e>b for e,b in zip(errors,bounds))
+    scaled=None if any(b==0 and e>0 for e,b in zip(errors,bounds)) else max(e/b if b else 0 for e,b in zip(errors,bounds))
+    return dict(finite=True,max_abs_error=max(errors),max_scaled_error=scaled,violating_elements=violations,elements=len(left),within_tolerance=violations==0)
+
+
+def replay_comparisons(report,probes,vocab,atol,rtol):
+    """Recompute metrics from hash-bound plain JSON, without importing Torch."""
+    expected=[p['case_id'] for p in probes]
+    if report.get('numerical_report_version')!=NUMERIC_REPORT_VERSION:
+        raise ValueError('replayable numerical report version required')
+    sides={}
+    for side in ('before','after'):
+        if [r['case_id'] for r in report[side]]!=expected:raise ValueError('incomplete numerical artifacts')
+        sides[side]=[]
+        for row,probe in zip(report[side],probes):
+            path=Path(row['artifact'])
+            if not path.is_absolute() or digest(path)!=row['sha256']:raise ValueError('numerical artifact hash/path differs')
+            raw=json.loads(path.read_text())
+            if not isinstance(raw.get('input_ids'),list) or any(type(t) is not int for t in raw['input_ids']):raise ValueError('invalid original input token IDs')
+            if not isinstance(raw.get('generated_ids'),list) or not raw['generated_ids']:raise ValueError('nonempty generated token IDs required')
+            if raw['input_ids']!=probe['input_ids'] or raw['generated_ids']!=row['generated_ids'] or len(raw['next_token_logits'])!=vocab:
+                raise ValueError('numerical artifact IDs/vocabulary differ')
+            if any(type(t) is not int or not 0<=t<vocab for t in raw['generated_ids']):raise ValueError('invalid generated token IDs')
+            sides[side].append(raw)
+    comparisons=[]
+    for probe,left,right in zip(probes,sides['before'],sides['after']):
+        comparisons.append(dict(case_id=probe['case_id'],logits=compare_logits(left['next_token_logits'],right['next_token_logits'],atol,rtol),generation_equal=left['generated_ids']==right['generated_ids']))
+    if comparisons!=report['comparisons']:raise ValueError('numerical metrics differ from raw artifact replay')
+    return comparisons
+
+
+def replay_control(report,probes,vocab,atol,rtol,required):
+    if not required:return True
+    control=report.get('negative_control',{})
+    if required!='disabled_adapter' or control.get('kind')!=required:raise ValueError('declared negative control missing')
+    shadow=dict(report,after=control['records'],comparisons=control['comparisons'])
+    rows=replay_comparisons(shadow,probes,vocab,atol,rtol)
+    detected=any(not row['logits']['within_tolerance'] for row in rows)
+    if control.get('detected')!=detected:raise ValueError('negative control metric differs from replay')
+    return detected
 
 
 def validate(plan):
@@ -36,6 +82,9 @@ def validate(plan):
     for field in ('logit_atol','min_generation_match_rate','max_wall_seconds'):
         if type(plan[field]) not in (int,float) or not math.isfinite(plan[field]):
             raise ValueError('finite numerical equivalence thresholds required')
+    if plan.get('negative_control') not in (None,'disabled_adapter'):raise ValueError('unsupported negative control')
+    rtol=plan.get('logit_rtol',0)
+    if type(rtol) not in (int,float) or not math.isfinite(rtol) or rtol<0:raise ValueError('finite nonnegative relative logit tolerance required')
     if plan['logit_atol']<0 or not 0<=plan['min_generation_match_rate']<=1 or plan['max_wall_seconds']<=0:
         raise ValueError('invalid numerical equivalence thresholds')
     for field in ('merge_plan','merge_result','probes'):
@@ -92,13 +141,18 @@ def worker(plan_path,sha256,out):
                 sequence=model.generate(input_ids=ids,attention_mask=torch.ones_like(ids),do_sample=False,num_beams=1,max_new_tokens=plan['max_new_tokens'])[0].cpu().tolist()
             if sequence[:len(probe['input_ids'])]!=probe['input_ids'] or len(sequence)-len(probe['input_ids'])>plan['max_new_tokens']:
                 raise ValueError('backend changed fixed prompt or exceeded generation cap')
-            artifact=root/(label+'_'+str(index)+'.pt')
-            torch.save(dict(input_ids=probe['input_ids'],next_token_logits=logits,generated_ids=sequence[len(probe['input_ids']):]),artifact)
+            artifact=root/(label+'_'+str(index)+'.json')
+            raw=dict(input_ids=probe['input_ids'],next_token_logits=logits.tolist(),generated_ids=sequence[len(probe['input_ids']):])
+            torch.save(raw,root/(label+'_'+str(index)+'.pt'))
+            write_json(artifact,raw)
             results.append(dict(case_id=probe['case_id'],logits=logits.tolist(),generated_ids=sequence[len(probe['input_ids']):],artifact=str(artifact),sha256=digest(artifact)))
         return results
     model=AutoModelForCausalLM.from_pretrained(base['base_model_path'],revision=base['base_revision'],local_files_only=True,trust_remote_code=False,dtype=getattr(torch,base['dtype']),attn_implementation='sdpa').to(base['device'])
     model=PeftModel.from_pretrained(model,base['adapter_path'],local_files_only=True,is_trainable=False)
     before=snapshots(model,'adapter')
+    control=None
+    if plan.get('negative_control')=='disabled_adapter':
+        with model.disable_adapter():control=snapshots(model,'disabled_adapter')
     del model
     if base['device']=='cuda':
         torch.cuda.empty_cache()
@@ -106,13 +160,20 @@ def worker(plan_path,sha256,out):
     after=snapshots(model,'merged')
     comparisons=[]
     for left,right in zip(before,after):
-        comparison=compare_logits(left.pop('logits'),right.pop('logits'),plan['logit_atol'])
+        comparison=compare_logits(left['logits'],right['logits'],plan['logit_atol'],plan.get('logit_rtol',0))
         comparisons.append(dict(case_id=left['case_id'],logits=comparison,generation_equal=left['generated_ids']==right['generated_ids']))
+    negative=None
+    if control is not None:
+        checks=[dict(case_id=a['case_id'],logits=compare_logits(a['logits'],b['logits'],plan['logit_atol'],plan.get('logit_rtol',0)),generation_equal=a['generated_ids']==b['generated_ids']) for a,b in zip(before,control)]
+        negative=dict(kind='disabled_adapter',detected=any(not c['logits']['within_tolerance'] for c in checks),comparisons=checks,records=[{k:v for k,v in r.items() if k!='logits'} for r in control])
+    for row in before+after:row.pop('logits')
     rate=sum(row['generation_equal'] for row in comparisons)/len(comparisons)
-    passed=all(row['logits']['within_tolerance'] for row in comparisons) and rate>=plan['min_generation_match_rate']
-    report=dict(peak_allocated_bytes=torch.cuda.max_memory_allocated() if base['device']=='cuda' else None,passed=False,passed_numeric=passed,tool_behavior='pending',logit_positions='last_input_token_full_vocabulary',generation_match_rate=rate,
-                thresholds=dict(logit_atol=plan['logit_atol'],min_generation_match_rate=plan['min_generation_match_rate']),comparisons=comparisons,before=before,after=after,
+    passed=all(row['logits']['within_tolerance'] for row in comparisons) and rate>=plan['min_generation_match_rate'] and (negative is None or negative['detected'])
+    report=dict(negative_control=negative,numerical_report_version=NUMERIC_REPORT_VERSION,peak_allocated_bytes=torch.cuda.max_memory_allocated() if base['device']=='cuda' else None,passed=False,passed_numeric=passed,tool_behavior='pending',logit_positions='last_input_token_full_vocabulary',generation_match_rate=rate,
+                thresholds=dict(logit_atol=plan['logit_atol'],logit_rtol=plan.get('logit_rtol',0),min_generation_match_rate=plan['min_generation_match_rate']),comparisons=comparisons,before=before,after=after,
                 source_checkpoint_files_sha256=merged['training_source']['source_checkpoint_files_sha256'],optimizer_step=base['optimizer_step'],exported_checkpoint_sha256=merged['exported_checkpoint_sha256'],plan_sha256=sha256)
+    replay_comparisons(report,probes,model.config.vocab_size,plan['logit_atol'],plan.get('logit_rtol',0))
+    replay_control(report,probes,model.config.vocab_size,plan['logit_atol'],plan.get('logit_rtol',0),plan.get('negative_control'))
     validate(plan)  # Reject source/probe changes during the model computations.
     write_json(root/'numeric_equivalence.json',report)
     return report

@@ -100,3 +100,5 @@ ChatPolicy 默认 `tool_choice=auto`，使用模型原生工具格式；配置�
 真实合并／数值探针：`PYTHONPATH=src .venv-train/bin/python -m officegym.training.export_probe --profile fp32 --fetch-root artifacts/qwen3_4b_base_cdbee75_v1 --backend artifacts/real_optimizer_backend_probe_v1 --out artifacts/NEW_EXPORT_PROBE`。它只使用已标注的后端 checkpoint，不能登记为正式 SFT 导出。BF16 对照已发现：两项生成完全一致，但最大 logit 差异 0.4375/0.375 超过预设 0.25，故保留为未通过。FP32 是独立精度配置，容差预设为 1e-4；完整验收还需要任务级工具等价。
 
 独立 FP32 v1 实测也未通过其预设容差：两项生成完全一致，但最大 logit 差异约 1.50e-4/1.38e-4，高于 1e-4。完整资源测量已完成（203.53s、观察峰值 22,540 MiB），数值／工具等价门禁仍关闭；命令在数值拒绝时返回非零退出码并保留全部证据。
+
+数值报告现为 numeric-v2：保存可用标准库重算的原始 JSON logits／token IDs，工具等价门禁不再直接信任 `passed` 或最大误差字段。显式 `logit_rtol` 默认 0；启用时按每个 reference logit 计算 `atol + rtol*abs(reference)`，可配真实禁用 adapter 的负对照。有界复测入口：`PYTHONPATH=src .venv-train/bin/python -m officegym.training.numeric_probe --plan FROZEN_PLAN.json --out NEW_DIRECTORY`。新三项输入的前瞻性 FP32 检查有两项通过、四个 logit 超限，整体仍未通过；CPU 原始数据复算与负对照验证均已完成。旧失败记录不变，正式导出门禁仍关闭。
