@@ -33,7 +33,7 @@ async def run(instance,model,out):
         tools=[OfficeGymTool(row['config'],OpenAIFunctionToolSchema.model_validate(row['tool_schema'])) for row in plugin_contents()['tools']['tools']]
     call='<tool_call>\n{ "name" : "board.read", "arguments" : { } }\n</tool_call><|im_end|>'
     class Server:
-        def __init__(self,texts,barrier=None,cap_outputs=False):self.texts=texts;self.calls=[];self.barrier=barrier;self.cap_outputs=cap_outputs
+        def __init__(self,texts,barrier=None,cap_outputs=False,backend_steps=None):self.texts=texts;self.calls=[];self.barrier=barrier;self.cap_outputs=cap_outputs;self.backend_steps=backend_steps
         async def generate(self,**kwargs):
             # The actual server interface gets tokens, never trusted metadata.
             assert set(kwargs)<=set('request_id prompt_ids sampling_params image_data video_data mm_processor_output audio_data mm_processor_kwargs'.split())
@@ -47,21 +47,40 @@ async def run(instance,model,out):
             assert len(ids)<=kwargs['sampling_params']['max_tokens']
             probs=[-.25-i*.001 for i in range(len(ids))]
             self.calls.append(dict(prompt_ids=list(kwargs['prompt_ids']),token_ids=ids,log_probs=probs,sampling_params=kwargs['sampling_params']))
-            return TokenOutput(token_ids=ids,log_probs=probs)
-    async def case(name,texts,*,response=4096,prompt=8192,context=8192,barrier=None,reject=False,cap_outputs=False,assistant_turns=30,user_turns=30):
+            step=self.backend_steps[len(self.calls)-1] if self.backend_steps is not None else None
+            fields=dict(global_steps=step,min_global_steps=step,max_global_steps=step) if step is not None else {}
+            return TokenOutput(token_ids=ids,log_probs=probs,extra_fields=fields)
+    async def case(name,texts,*,response=4096,prompt=8192,context=8192,barrier=None,reject=False,cap_outputs=False,assistant_turns=30,user_turns=30,actor_step=None,backend_steps=None,version_reject=False):
         case_root=root/name;case_root.mkdir()
         config=OmegaConf.create(dict(data={},actor_rollout_ref=dict(rollout=dict(prompt_length=prompt,response_length=response,full_determinism=False,multi_turn=dict(max_user_turns=user_turns,max_assistant_turns=assistant_turns,max_parallel_calls=1,max_tool_response_length=20000,tool_response_truncate_side='right',format='hermes')))))
-        server=Server(texts,barrier,cap_outputs)
+        server=Server(texts,barrier,cap_outputs,backend_steps)
         loop=OfficeGymAgentLoop(trainer_config=DictConfigWrap(config),server_manager=server,tokenizer=tokenizer,processor=None,dataset_cls=object,data_config=DictConfigWrap(config.data),hf_model_type='qwen3',tools=ToolListWrap(tools))
         trusted=dict(actor_version='authored-native-protocol-fixture',max_generation_tokens=512,max_context_tokens=context,token_ledger_path=str(case_root/'tokens.sqlite'),global_rollout_token_limit=512,instance_dir=str(instance),artifact_root=str(case_root/'trajectories'))
+        if actor_step is not None:
+            from .actor_version import bind_actor_metadata
+            trusted=bind_actor_metadata(trusted,trusted['actor_version'],actor_step)
         try:
             output=await loop.run(dict(max_tokens=128),officegym=trusted)
         except ValueError as error:
+            if version_reject:
+                assert 'stale or mixed actor versions' in str(error)
+                write_json(case_root/'generation.json',server.calls)
+                assert not REGISTRY.entries
+                archive=next((case_root/'trajectories').iterdir())
+                assert (archive/'incomplete.json').exists() and not (archive/'terminal.json').exists()
+                tool_log=archive/'tools.jsonl'
+                executed=len(tool_log.read_text().splitlines()) if tool_log.exists() else 0
+                assert executed==len(server.calls)-1
+                with sqlite3.connect(case_root/'tokens.sqlite') as db:
+                    assert db.execute('SELECT observed FROM reservations').fetchone()==(None,)
+                write_json(case_root/'rejection.json',dict(error=str(error),generation_requests=len(server.calls),reserved_usage_retained=True))
+                return dict(case=name,backend_version_rejected=True,generation_requests=len(server.calls))
             if not reject:raise
             assert 'truncation forbidden' in str(error) and not server.calls
             write_json(case_root/'rejection.json',dict(error=str(error),generation_requests=0))
             return dict(case=name,rejected_before_generation=True)
-        assert not reject
+        assert not reject and not version_reject
+        assert output.extra_fields['officegym_actor_version_verified']==(actor_step is not None)
         write_json(case_root/'output.json',output.model_dump())
         write_json(case_root/'generation.json',server.calls)
         generated=[t for c in server.calls for t in c['token_ids']]
@@ -102,11 +121,15 @@ async def run(instance,model,out):
     assert rows[-1]['termination_reason']=='invalid_tool_batch'
     rows.append(await case('assistant_turn_limit',[call],assistant_turns=1))
     assert rows[-1]['termination_reason']=='agent_turn_limit' and rows[-1]['generation_requests']==1
+    rows.append(await case('actor_step_zero',[call,patch('版本零'),'done<|im_end|>'],actor_step=0,backend_steps=[0,0,0]))
+    rows.append(await case('actor_step_one',[call,patch('版本一'),'done<|im_end|>'],actor_step=1,backend_steps=[1,1,1]))
+    rows.append(await case('stale_actor_second_turn',[call,patch('不得执行')],actor_step=1,backend_steps=[1,0],version_reject=True))
+    rows.append(await case('missing_backend_version',[call],actor_step=1,version_reject=True))
     rows.append(await case('user_turn_limit',[call],user_turns=1))
     assert rows[-1]['termination_reason']=='agent_turn_limit' and rows[-1]['generation_requests']==1
     assert not REGISTRY.entries
     assert hashlib.sha256((instance/'initial_world.sqlite').read_bytes()).hexdigest()==before
-    local_hashes={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in (Path(__file__),Path(__file__).with_name('verl_loop.py'),Path(__file__).with_name('worker_plugins.py'))}
+    local_hashes={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in (Path(__file__),Path(__file__).with_name('verl_loop.py'),Path(__file__).with_name('worker_plugins.py'),Path(__file__).with_name('actor_version.py'))}
     report=dict(passed=True,kind='authored-token-native-loop-protocol-not-model-rollout',cases=rows,source_hashes=hashes,local_source_hashes=local_hashes,instance=str(instance),initial_snapshot_sha256=before,isolated_paths=sorted(barrier['paths']),model_generations=0,optimizer_updates=0,teacher_samples=0,wall_seconds=time.monotonic()-started)
     write_json(root/'report.json',report)
     return report

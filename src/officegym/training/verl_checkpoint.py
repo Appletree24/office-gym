@@ -78,11 +78,32 @@ def record_saved_checkpoint(config,step,evidence=None):
 
 def observed_trainer_class(base,config,evidence):
     class ObservedTrainer(base):
+        def _validate(self,*args,**kwargs):
+            self._officegym_validating=True
+            try:return super()._validate(*args,**kwargs)
+            finally:self._officegym_validating=False
+        def _get_gen_batch(self,batch):
+            from .actor_version import bind_actor_metadata
+            initial=config['trainer']['officegym_starting_actor_hash']
+            count=getattr(self,'_officegym_optimizer_steps',0)
+            expected=count if getattr(self,'_officegym_validating',False) else count+1
+            if self.global_steps!=expected:raise ValueError('rollout dispatch differs from verified optimizer counter')
+            result=super()._get_gen_batch(batch)
+            column=result.non_tensor_batch['officegym'].copy()
+            if not len(column):raise ValueError('nonempty native rollout dispatch required')
+            for index,row in enumerate(column):column[index]=bind_actor_metadata(row,initial,count)
+            result.non_tensor_batch['officegym']=column
+            evidence.event('rollout_dispatch',count,dict(native_global_step=self.global_steps,actor_version=column[0]['actor_version'],rows=len(column),validation=getattr(self,'_officegym_validating',False)))
+            return result
         def _update_actor(self,batch):
             validate_profile(config)
             expected=config['data']['train_batch_size']*config['actor_rollout_ref']['rollout']['n']
             count=getattr(self,'_officegym_optimizer_steps',0)
             if len(batch)!=expected or self.global_steps!=count+1:raise ValueError('native optimizer batch/counter differs from admitted single-update contract')
+            initial=config['trainer'].get('officegym_starting_actor_hash')
+            if initial is not None:
+                from .actor_version import validate_actor_batch,actor_identity
+                validate_actor_batch(batch.non_tensor_batch,initial,count,expected_rows=len(batch))
             result=super()._update_actor(batch)
             def values(value):
                 if isinstance(value,numbers.Real) and type(value) is not bool:return [float(value)]
@@ -91,7 +112,8 @@ def observed_trainer_class(base,config,evidence):
             norms=values(result.meta_info['metrics']['actor/grad_norm'])
             if not norms or any(not math.isfinite(v) or v<0 for v in norms):raise ValueError('native optimizer update lacks finite gradient proof')
             self._officegym_optimizer_steps=count+1
-            evidence.event('optimizer_update',count+1,dict(native_global_step=self.global_steps,gradient_norms=norms,contract='single-mini-batch-epoch'))
+            version=dict(sampled_actor_step=count,sampled_actor_version=actor_identity(initial,count),per_generation_version_checks=True) if initial is not None else {}
+            evidence.event('optimizer_update',count+1,dict(native_global_step=self.global_steps,gradient_norms=norms,contract='single-mini-batch-epoch',**version))
             return result
         def _save_checkpoint(self):
             if getattr(self,'_officegym_optimizer_steps',0)!=self.global_steps:raise ValueError('native checkpoint lacks verified optimizer counter')
@@ -121,6 +143,8 @@ def run_task(instance,config):
     for module,path in ((upstream,'verl/trainer/main_ppo_v0.py'),(tracking,'verl/utils/tracking.py')):
         if Path(inspect.getfile(module)).resolve()!=checkout/path:raise ValueError('runtime imported another verl checkout')
     evidence=TrainingEvidence(root);evidence.event('backend_source_lock',0,hashes)
+    from .worker_plugins import verify_loop_sources
+    evidence.event('backend_rollout_source_lock',0,verify_loop_sources(checkout))
     if Path(inspect.getfile(upstream.RayPPOTrainer)).resolve()!=checkout/'verl/trainer/ppo/ray_trainer.py':raise ValueError('runtime trainer is outside locked checkout')
     trainer=observed_trainer_class(upstream.RayPPOTrainer,config,evidence)
     original=tracking.Tracking;tracking.Tracking=observed_tracking_class(original,config.trainer.total_training_steps,evidence)

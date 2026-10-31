@@ -7,5 +7,9 @@
   "verl/utils/tokenizer/chat_template.py": "a6f7cc2915edccba5d145cc59fac1e8dcd4311cc80e3fcb444a888323c799243",
   "verl/utils/tokenizer/tokenizer.py": "ce2d4aedc1eeb4c745efacfd10830e6a7b50ee42ccd27789e8816fb68b03c112",
   "verl/tools/base_tool.py": "2a6ab14f689b9f44b8aa96f0bb881a2013a6c656bcb8ec088930bf8a4d2fc739",
-  "verl/tools/schemas.py": "b5c3a38a44015c27da2dcf1a1f5204f038b895bbf3678c4b1575f62fe1ba5c08"
+  "verl/tools/schemas.py": "b5c3a38a44015c27da2dcf1a1f5204f038b895bbf3678c4b1575f62fe1ba5c08",
+  "verl/workers/rollout/llm_server.py": "a31a51faf3bc7a877628eff52917cb442b1d3e17ae5249a7f3cdbc9282a45e96",
+  "verl/workers/rollout/vllm_rollout/vllm_async_server.py": "32f1e3bc6fa1bccc7082a0a6901e12a713974dcf78f48129957cfea3679b21ac",
+  "verl/workers/rollout/vllm_rollout/vllm_rollout.py": "e82e1c6782573e03c871b982eb0653801f54cb1647367a604aa8b1c5454773cb",
+  "verl/checkpoint_engine/base.py": "97b51131a5770892007b7fb07264a2657fe83255b085927acd08c952a5682f64"
 }

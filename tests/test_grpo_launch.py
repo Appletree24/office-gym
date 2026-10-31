@@ -51,6 +51,7 @@ class LaunchTests(unittest.TestCase):
             profile=checkpoint_profile(Path(directory)/'run')
             profile['trainer']['officegym_verl_checkout']=directory
             resolved['trainer'].update(profile['trainer'])
+            resolved['trainer']['officegym_starting_actor_hash']=config['starting_checkpoint_hash']
             resolved['actor_rollout_ref']['actor']=profile['actor_rollout_ref']['actor']
             resolved['actor_rollout_ref']['model']={'path':str(checkpoint)}
             resolved['data'] = dict(train_files=[str(train)],train_batch_size=2)

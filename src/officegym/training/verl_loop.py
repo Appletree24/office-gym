@@ -27,6 +27,11 @@ class OfficeGymAgentLoop(ToolAgentLoop):
     async def run(self,sampling_params,priority=0,**kwargs):
         trusted = kwargs['officegym']
         actor = trusted['actor_version']
+        from .actor_version import validate_actor_metadata,VersionedServer
+        initial=self.config.get('trainer',{}).get('officegym_starting_actor_hash')
+        checked_step=validate_actor_metadata(trusted,initial) if initial is not None or 'actor_update_step' in trusted else None
+        original_server=self.server_manager
+        version_guard=None
         trajectory = uuid4().hex
         self._officegym_trajectory = trajectory
         self._generation_budget = GenerationBudget(trusted['max_generation_tokens'],trusted['max_context_tokens'])
@@ -39,6 +44,9 @@ class OfficeGymAgentLoop(ToolAgentLoop):
             ledger.reserve(trajectory,actor,trusted['max_generation_tokens'])
             REGISTRY.acquire(trajectory,'__episode__',trusted['instance_dir'],actor,trusted.get('max_tool_calls',24),artifact_dir=Path(trusted['artifact_root'])/trajectory)
             environment = REGISTRY.entries[trajectory]['environment']
+            if checked_step is not None:
+                version_guard=VersionedServer(original_server,checked_step,Path(trusted['artifact_root'])/trajectory)
+                self.server_manager=version_guard
             expected_tools = {tool['name'] for tool in tool_schemas()}
             if set(self.tools)!=expected_tools:
                 raise ValueError('training must expose exactly the same 24 OfficeGym tools')
@@ -59,8 +67,10 @@ class OfficeGymAgentLoop(ToolAgentLoop):
                                          logprobs=output.response_logprobs,actor_version=actor,termination_reason=reason)
             output.reward_score = terminal['reward']
             output.extra_fields.update(officegym_termination_reason=reason,officegym_actor_version=actor,officegym_final_hash=terminal['final_state_hash'],officegym_tool_calls=terminal['tool_calls'],officegym_generated_tokens=self._generation_budget.observed,officegym_invalid_tool_batch=self._invalid_tool_batch)
+            output.extra_fields.update(officegym_actor_update_step=checked_step,officegym_actor_version_verified=version_guard is not None and version_guard.checks>0)
             return output
         finally:
+            self.server_manager=original_server
             try:
                 if not self._generation_uncertain:
                     row = ledger.db.execute('SELECT 1 FROM reservations WHERE trajectory=?',(trajectory,)).fetchone()

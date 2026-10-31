@@ -63,7 +63,7 @@ def validate_launch(config,smoke=False):
             else:
                 values[name] = value
     flatten(resolved)
-    required_values = {'algorithm.adv_estimator':'grpo','actor_rollout_ref.rollout.n':config['group_size'],'trainer.total_training_steps':config['max_updates'],'actor_rollout_ref.model.path':str(Path(config['starting_checkpoint_path']).resolve())}
+    required_values = {'algorithm.adv_estimator':'grpo','actor_rollout_ref.rollout.n':config['group_size'],'trainer.total_training_steps':config['max_updates'],'actor_rollout_ref.model.path':str(Path(config['starting_checkpoint_path']).resolve()),'trainer.officegym_starting_actor_hash':config['starting_checkpoint_hash']}
     if any(values.get(key)!=value for key,value in required_values.items()):
         raise ValueError('resolved upstream algorithm/group/update budget mismatch')
     preparation = json.loads(Path(config['prepared_rollouts']).read_text())

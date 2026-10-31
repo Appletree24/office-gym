@@ -118,7 +118,7 @@ PYTHONPATH=src .venv-rl/bin/python -m officegym.training.native_loop_probe \
   --out artifacts/NEW_NATIVE_PROTOCOL
 ```
 
-该入口运行真实上游 AgentLoop、tokenizer、工具和评分器，但生成端提供人工 token/logprob，不是模型 rollout。它验证并发世界隔离、原始 IDs/mask/logprob 保留、容量拒绝与资源释放，限时 180 秒；当前 v5 的十项检查通过。正式 GRPO、actor/reference 与权重同步验收仍待完成，详见 IMPLEMENTATION_STATUS.md。
+该入口运行真实上游 AgentLoop、tokenizer、工具和评分器，但生成端提供人工 token/logprob，不是模型 rollout。它验证并发世界隔离、原始 IDs/mask/logprob 保留、容量拒绝与资源释放，限时 180 秒；当前 v8 的十四项检查通过。正式 GRPO、actor/reference 与权重同步验收仍待完成，详见 IMPLEMENTATION_STATUS.md。
 
 新 RL 环境中的真实基模/vLLM 原始 token 接入探针：
 
@@ -130,3 +130,12 @@ PYTHONPATH=src .venv-rl/bin/python -m officegym.training.native_inference_probe 
 ```
 
 要求 GPU 空闲，限时 600 秒／36 GiB 显存／2 GiB 产物；最多两条轨迹、十次生成、1,024 个生成 token，无付费 API。当前 v2 完成十次真实生成，原始 IDs/logprobs 与 mask 对齐，两条轨迹均在诊断轮次上限结束、奖励为零。它不运行 Ray rollout server、参数更新或正式 GRPO，也不证明 worker 文件系统隔离。
+
+原生控制器版本绑定探针（真实 DataProto／固定上游分批方法，更新计数为人工 fixture）：
+
+```bash
+PYTHONPATH=src .venv-rl/bin/python scripts/probe_native_actor_dispatch.py \
+  --checkout artifacts/verl_checkout_v1/repo --out artifacts/NEW_ACTOR_DISPATCH
+```
+
+正式启动配置须将 `trainer.officegym_starting_actor_hash` 绑定到已验收的 SFT 导出哈希。控制器按完成更新次数标记每条轨迹，循环逐次检查 backend 版本，更新前拒绝混合版本 batch。这些检查不证明实际权重已同步；真实 Ray／权重同步／KL／GRPO 更新验收仍待执行。
