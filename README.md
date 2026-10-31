@@ -38,3 +38,5 @@ SFT/RS-SFT 的解析训练计划还必须提供 `checkpoint_interval_steps`，�
 LoRA merged 导出入口：`python -m officegym.training.merge --help`。解析计划须提供本地 base/adapter、基础模型内容哈希、训练事件与步数、精确依赖版本、设备/精度、时间上限及 shard/export 字节上限。命令在独立进程中合并并保存独立模型和 tokenizer；保存前检查 tensor 字节数，保存后核对实际导出大小，超限保留失败现场。`merge_result.json` 明确保留 `passed: false`，直到固定样本 logits、生成和工具行为等价性另行验证；不能把完成合并当作导出验收通过。
 
 数值等价性入口：`python -m officegym.training.equivalence --help`。计划绑定 merge 计划/结果和固定 token probes 的哈希，显式限制案例数、输入/输出 token、forward logits 元素数、时间以及数值/生成匹配阈值。它比较每个输入最后一个位置的完整词表 logits 和贪心生成 token IDs，重新加载 merged 模型并保存两侧原始 tensor 证据。`passed_numeric` 只表示这一层检查；`passed` 保持 false，工具行为等价性仍须另行完成。
+
+工具行为等价性入口：`python -m officegym.training.tool_equivalence freeze --help` / `finalize --help`。先冻结数值证据、dev 计划、阈值和预定结果路径（此时结果文件不得已存在），再使用有界评测入口分别采集 adapter 与 merged 模型结果。前者的 `model_version` 绑定数值报告中的 `source_checkpoint_files_sha256`，后者绑定 `exported_checkpoint_sha256`。最终验收重导出原始运行、重新评分保存的世界，要求完整三次重复、相同 tokenizer／采样／预算、无基础设施错误、无新增重复效果或严重违规。仅数值与工具检查都通过的报告才能用于 `record_export`；部署是否确实加载对应权重仍需服务端运行证据支持。
