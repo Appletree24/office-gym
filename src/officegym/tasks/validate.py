@@ -5,6 +5,7 @@ import json
 import sqlite3
 from collections import Counter
 from pathlib import Path
+from .event_contract import validate_event_contract
 from .partitions import validate_partition,HELDOUT_SIGNATURES
 from .integrity import validate_unique, dependency_depth, fingerprints, check_holdout
 
@@ -39,10 +40,10 @@ def validate_dataset(manifest_path):
         if task.get('example_only') or any(task[key]!=entry[key] for key in ('instance_id','split','template_id','scenario_family_id','depth_level','perturbation_level')):
             raise ValueError('task identity mismatch or example fixture')
         validate_partition(task['template_id'],task['split'],task.get('seed'))
+        rules = json.loads((directory/'event_rules.json').read_text())
         if entry['split'] in atoms:
-            rules = json.loads((directory/'event_rules.json').read_text())
             scheduled = rules.get('scheduled_events',[])
-            signature = [event['kind'] for event in sorted(scheduled,key=lambda event:(event['due_at'],event['id']))]
+            signature = [event['kind'] for event in sorted(scheduled,key=lambda event:(event['due_at'],event.get('priority',10),event['id']))]
             atoms[entry['split']].update(signature)
             if entry['split']=='train':
                 check_holdout(signature,manifest.get('heldout_signatures',[['AttendeeChanged','DocumentVersionPublished']]))
@@ -62,6 +63,7 @@ def validate_dataset(manifest_path):
             if db.execute('PRAGMA integrity_check').fetchone()[0]!='ok' or db.execute('PRAGMA foreign_key_check').fetchone():
                 raise ValueError('invalid initial database')
             db.row_factory = sqlite3.Row
+            validate_event_contract(task,rules,db)
             tables = [row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")]
             from officegym.env.world import canonical
             snapshot = {table:sorted((dict(row) for row in db.execute('SELECT * FROM "'+table+'"')),key=canonical) for table in tables}
