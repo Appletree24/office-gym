@@ -63,6 +63,32 @@ def validate_samples(rows,max_length):
             raise ValueError('labels differ from verified assistant mask')
 
 
+def make_trainer(plan,rows,root,tokenizer,callbacks):
+    """Shared native backend; data admission stays in train(), outside this factory.
+
+    The backend probe may exercise this with labelled protocol fixtures, without
+    constructing a fake teacher manifest or entering the formal training branch.
+    """
+    import torch
+    from datasets import Dataset
+    from transformers import AutoModelForCausalLM
+    from peft import LoraConfig
+    from trl import SFTTrainer,SFTConfig
+    validate_samples(rows,plan['max_sequence_tokens'])
+    dataset = Dataset.from_list([{'input_ids':row['input_ids'],'labels':row['labels']} for row in rows])
+    def collate(batch):
+        width = max(len(row['input_ids']) for row in batch)
+        return {'input_ids':torch.tensor([row['input_ids']+[tokenizer.pad_token_id]*(width-len(row['input_ids'])) for row in batch]),
+                'labels':torch.tensor([row['labels']+[-100]*(width-len(row['labels'])) for row in batch]),
+                'attention_mask':torch.tensor([[1]*len(row['input_ids'])+[0]*(width-len(row['input_ids'])) for row in batch])}
+    model = AutoModelForCausalLM.from_pretrained(plan['model_path'],revision=plan['model_revision'],local_files_only=True,trust_remote_code=False,dtype=torch.bfloat16,attn_implementation='sdpa')
+    model.config.use_cache = False
+    lora = plan['lora']
+    args = SFTConfig(output_dir=str(root/'trainer'),max_steps=plan['max_steps'],per_device_train_batch_size=plan['micro_batch_size'],gradient_accumulation_steps=plan['gradient_accumulation_steps'],learning_rate=plan['learning_rate'],bf16=True,packing=False,dataset_kwargs={'skip_prepare_dataset':True},remove_unused_columns=False,report_to=[],logging_steps=1,logging_nan_inf_filter=False,save_strategy='steps',save_steps=plan['checkpoint_interval_steps'],save_total_limit=None,max_length=plan['max_sequence_tokens'],gradient_checkpointing=plan.get('gradient_checkpointing',True),gradient_checkpointing_kwargs={'use_reentrant':False},seed=plan.get('seed',2026))
+    trainer = SFTTrainer(model=model,args=args,train_dataset=dataset,processing_class=tokenizer,data_collator=collate,peft_config=LoraConfig(r=lora['rank'],lora_alpha=lora['alpha'],lora_dropout=lora['dropout'],target_modules=lora['target_modules'],task_type='CAUSAL_LM'),callbacks=callbacks)
+    return trainer
+
+
 def train(plan_path,data_dir,out):
     plan = json.loads(Path(plan_path).read_text())
     manifest = validate_plan(plan,data_dir)
@@ -70,10 +96,7 @@ def train(plan_path,data_dir,out):
         if importlib.metadata.version(package)!=plan['locked_packages'].get(package):
             raise ValueError('training package lock mismatch: '+package)
     import torch
-    from datasets import Dataset
-    from transformers import AutoModelForCausalLM,AutoTokenizer,TrainerCallback
-    from peft import LoraConfig
-    from trl import SFTTrainer,SFTConfig
+    from transformers import AutoTokenizer,TrainerCallback
     root = Path(out)
     root.mkdir(parents=True,exist_ok=False)
     (root/'resolved_train_config.json').write_text(canonical(plan)+'\n')
@@ -83,12 +106,6 @@ def train(plan_path,data_dir,out):
         tokenizer.pad_token = tokenizer.eos_token
     rows = [json.loads(line) for line in (Path(data_dir)/'samples.jsonl').read_text().splitlines()]
     validate_samples(rows,plan['max_sequence_tokens'])
-    dataset = Dataset.from_list([{'input_ids':row['input_ids'],'labels':row['labels']} for row in rows])
-    def collate(batch):
-        width = max(len(row['input_ids']) for row in batch)
-        return {'input_ids':torch.tensor([row['input_ids']+[tokenizer.pad_token_id]*(width-len(row['input_ids'])) for row in batch]),
-                'labels':torch.tensor([row['labels']+[-100]*(width-len(row['labels'])) for row in batch]),
-                'attention_mask':torch.tensor([[1]*len(row['input_ids'])+[0]*(width-len(row['input_ids'])) for row in batch])}
     started = time.monotonic()
     evidence=TrainingEvidence(root)
     class WallBudget(TrainerCallback):
@@ -102,11 +119,7 @@ def train(plan_path,data_dir,out):
         def on_save(self,args,state,control,**kwargs):
             if getattr(state,'is_world_process_zero',True):
                 evidence.checkpoint(root/'trainer'/('checkpoint-'+str(state.global_step)),state.global_step)
-    model = AutoModelForCausalLM.from_pretrained(plan['model_path'],revision=plan['model_revision'],local_files_only=True,trust_remote_code=False,torch_dtype=torch.bfloat16)
-    model.config.use_cache = False
-    lora = plan['lora']
-    args = SFTConfig(output_dir=str(root/'trainer'),max_steps=plan['max_steps'],per_device_train_batch_size=plan['micro_batch_size'],gradient_accumulation_steps=plan['gradient_accumulation_steps'],learning_rate=plan['learning_rate'],bf16=True,packing=False,dataset_kwargs={'skip_prepare_dataset':True},remove_unused_columns=False,report_to=[],logging_steps=1,logging_nan_inf_filter=False,save_strategy='steps',save_steps=plan['checkpoint_interval_steps'],save_total_limit=None)
-    trainer = SFTTrainer(model=model,args=args,train_dataset=dataset,processing_class=tokenizer,data_collator=collate,peft_config=LoraConfig(r=lora['rank'],lora_alpha=lora['alpha'],lora_dropout=lora['dropout'],target_modules=lora['target_modules'],task_type='CAUSAL_LM'),callbacks=[WallBudget()])
+    trainer = make_trainer(plan,rows,root,tokenizer,[WallBudget()])
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
     try:

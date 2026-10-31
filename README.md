@@ -1,6 +1,6 @@
 # OfficeGym
 
-按《OFFICEGYM_IMPLEMENTATION.md》持续实施的可重置办公任务研究环境。目前具备 24 个工具、14 个模板生成器、独立评分器、官方 MCP 适配器、预算化 Harness、真实 worker-kill 恢复探针，以及尚待真实后端验证的训练入口。正式数据冻结、模型训练及完整评测尚未完成；没有模型效果或训练提升结论。
+按《OFFICEGYM_IMPLEMENTATION.md》持续实施的可重置办公任务研究环境。目前具备 24 个工具、14 个模板生成器、独立评分器、官方 MCP 适配器、预算化 Harness、真实 worker-kill 恢复探针，以及已通过真实双步优化器探针的 SFT 后端和待验证的 RL 训练入口。正式数据冻结、模型训练及完整评测尚未完成；没有模型效果或训练提升结论。
 
 Python 3.11+，当前 CPU 实现仅依赖标准库。项目目录中执行：
 
@@ -94,3 +94,5 @@ PYTHONPATH=src .venv-serve/bin/python -m officegym.eval.model_probe --fetch-root
 本机真实服务探针：`PYTHONPATH=src .venv-serve/bin/python -m officegym.eval.vllm_probe --fetch-root artifacts/qwen3_4b_base_cdbee75_v1 --out artifacts/NEW_VLLM_PROBE`。服务环境锁见 requirements-vllm.lock；命令要求 GPU 空闲，以有限时间／显存和临时环境密钥启动 loopback 服务。固定 vLLM 0.11 的 serial_vllm 适配层在采样前将明确的单工具请求限制为一个调用。v4 已验证 72 次真实调用的 token 计数和单工具协议，但 T01–T03 均在 24 次调用后预算停止，完整成功 0/3；这属于协议可行性记录，不能作为正式基线。当前 Harness 为 v9，历史准备数据需要重新生成。
 
 ChatPolicy 默认 `tool_choice=auto`，使用模型原生工具格式；配置可显式选择 `required` 作诊断，选择会记录在结果与 provenance 中。原生对照探针 artifacts/vllm_native_auto_probe_v1 已消除此前的反复读板模式，T01–T03 执行 10/10/8 个工具后声明完成，独立评分仍为 0/3。30 次响应的 token 计数均一致；其中两次纯文本响应经有限重试恢复。离线审计命令：`PYTHONPATH=src .venv/bin/python -m officegym.eval.protocol_audit --runs RUN_DIRECTORY --out NEW_AUDIT.json`；严格单工具审计不会把这种可恢复的纯文本响应算成通过。
+
+真实训练后端探针：`PYTHONPATH=src .venv-train/bin/python -m officegym.training.backend_probe --fetch-root artifacts/qwen3_4b_base_cdbee75_v1 --out artifacts/NEW_BACKEND_PROBE`。有效依赖锁见 requirements-training.lock；当前 .venv-train 通过显式 .pth 复用服务环境，仅覆盖冲突的训练依赖。探针使用清楚标注的手写协议样本，真实完成两次 TRL/PEFT LoRA 更新，并核对 assistant-only loss、非零有限梯度、参数变化与原始文件哈希；不产生教师数据或正式 SFT baseline。v1 实测 wall 38.79s、峰值分配约 12.60 GiB；16 样本过拟合、任务效果与导出等价仍待完成。

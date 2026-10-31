@@ -5,3 +5,4 @@ artifacts/
 build/
 .venv-tokenizer/
 .venv-serve/
+.venv-train/
