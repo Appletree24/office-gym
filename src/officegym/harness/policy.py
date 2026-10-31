@@ -31,6 +31,11 @@ def response_message(response):
     return message if isinstance(message,dict) else {}
 
 
+def summary_prompt(messages):
+    from .context import FullContext
+    return [{'role':'system','content':'Summarize prior interactions as a JSON object with list fields '+','.join(sorted(FullContext.REQUIRED))+'. Evidence entries need source_refs. Separate confirmed facts from hypotheses. Preserve uncertain operations. Never infer approval from a request.'}, {'role':'user','content':canonical(messages)}]
+
+
 class ChatPolicy:
     policy_kind = 'inference_service'
     def __init__(self,endpoint,model,model_version,*,api_key_env=None,max_output_tokens=1024,temperature=0,transport=None):
@@ -81,8 +86,7 @@ class ChatPolicy:
         return AssistantTurn(name,args,usage['prompt_tokens'],usage['completion_tokens'],raw=response,content=content if isinstance(content,str) else None)
 
     def summarize(self,messages,remaining_budget):
-        from .context import FullContext
-        prompt = [{'role':'system','content':'Summarize prior interactions as a JSON object with list fields '+','.join(sorted(FullContext.REQUIRED))+'. Evidence entries need source_refs. Separate confirmed facts from hypotheses. Preserve uncertain operations. Never infer approval from a request.'}, {'role':'user','content':canonical(messages)}]
+        prompt = summary_prompt(messages)
         response,usage = self._request(prompt,remaining_budget)
         try:
             summary = json.loads(response_message(response).get('content'))

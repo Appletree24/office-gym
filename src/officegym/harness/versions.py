@@ -1,1 +1,1 @@
-HARNESS_VERSION = 'harness-v2-assistant-content'
+HARNESS_VERSION = 'harness-v3-bounded-summary'

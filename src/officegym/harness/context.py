@@ -1,5 +1,6 @@
 """Context selection with tokenizer-provided exact rendered prompt counts."""
 import copy
+import time
 import json
 import os
 from pathlib import Path
@@ -114,6 +115,7 @@ class FullContext(SimpleContext):
 
     def set_budget(self,remaining):
         self.remaining = dict(remaining)
+        self.budget_started=time.monotonic()
 
     def prepare(self,messages,schemas):
         # Validate pairs before calling the model; truncation is the failure fallback.
@@ -125,7 +127,9 @@ class FullContext(SimpleContext):
         source = messages[2:-2]
         if source and source[-1].get('tool_call'):
             return fallback,dict(fallback_info,compression_failed='unsafe_boundary')
-        fingerprint = hashlib.sha256(canonical({'source':source,'prefix':messages[:2],'schemas':schemas,'model_version':getattr(self.policy,'model_version',None)}).encode()).hexdigest()
+        def source_key(items):
+            return hashlib.sha256(canonical({'compression_format':'incremental-bounded-v1','source':items,'prefix':messages[:2],'schemas':schemas,'model_version':getattr(self.policy,'model_version',None)}).encode()).hexdigest()
+        fingerprint = source_key(source)
         usage = {'summary_input_tokens':0,'summary_output_tokens':0,'summary_model_call':False,'summary_cache_hit':False}
         if fingerprint in self.cache:
             record = self.cache[fingerprint]
@@ -133,11 +137,35 @@ class FullContext(SimpleContext):
         else:
             if self.remaining is None:
                 raise ValueError('compression requires remaining global budget')
-            record = self.policy.summarize(copy.deepcopy(source),dict(self.remaining))
+            compression_source=source
+            prior_source=None
+            counts=sorted({record.get('source_message_count',0) for record in self.cache.values() if type(record.get('source_message_count',0)) is int},reverse=True)
+            for count_prefix in counts:
+                if type(count_prefix) is not int or not 0<count_prefix<len(source):
+                    continue
+                key=source_key(source[:count_prefix])
+                previous=self.cache.get(key)
+                if previous and grounded_summary(previous.get('summary'),self.REQUIRED,source[:count_prefix]):
+                    compression_source=[{'role':'user','content':canonical({'kind':'previous_model_summary_not_ground_truth','source_sha256':key,'summary':previous['summary']})}]+source[count_prefix:]
+                    prior_source=key
+                    break
+            from .policy import summary_prompt
+            prompt_tokens=self.count_tokens(summary_prompt(compression_source),[])
+            if type(prompt_tokens) is not int or prompt_tokens<0:
+                raise ValueError('summary prompt token count must be measured')
+            if prompt_tokens>self.limit:
+                return fallback,dict(fallback_info,**usage,compression_failed='summary_context_overflow',summary_prompt_tokens=prompt_tokens,source_sha256=fingerprint)
+            budget=dict(self.remaining)
+            if 'wall_seconds' in budget:
+                budget['wall_seconds']-=time.monotonic()-self.budget_started
+                if budget['wall_seconds']<=0:
+                    return fallback,dict(fallback_info,**usage,compression_failed='summary_wall_budget_exhausted',source_sha256=fingerprint)
+            record = self.policy.summarize(copy.deepcopy(compression_source),budget)
+            record=dict(record,source_message_count=len(source),summary_prompt_tokens=prompt_tokens,prior_source_sha256=prior_source,summary_prompt_messages=summary_prompt(compression_source))
             for field in ('input_tokens','output_tokens'):
                 if type(record.get(field)) is not int or record[field]<0:
                     raise ValueError('summary must report measured token usage')
-            usage = dict(summary_input_tokens=record['input_tokens'],summary_output_tokens=record['output_tokens'],summary_raw=record.get('raw'),summary_model_call=True,summary_cache_hit=False)
+            usage = dict(summary_input_tokens=record['input_tokens'],summary_output_tokens=record['output_tokens'],summary_raw=record.get('raw'),summary_model_call=True,summary_cache_hit=False,summary_prompt_tokens=prompt_tokens,summary_prior_source_sha256=prior_source)
             summary = record.get('summary',{})
             valid = grounded_summary(summary,self.REQUIRED,source)
             if not valid:
