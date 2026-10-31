@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OfficeGym measured episode result",
+  "type": "object",
+  "required": [
+    "instance_id",
+    "scenario_family_id",
+    "repeat_id",
+    "group",
+    "split",
+    "template_id",
+    "depth_level",
+    "perturbation_level",
+    "env_version",
+    "eval_grader_version",
+    "dataset_manifest_hash",
+    "budget_hash",
+    "success",
+    "infra_error",
+    "fault_injected",
+    "recovery_started",
+    "duplicate_effects",
+    "premature_completion",
+    "declared_done",
+    "generated_tokens",
+    "input_tokens",
+    "tool_calls",
+    "wall_seconds",
+    "sim_seconds"
+  ],
+  "properties": {
+    "instance_id": {
+      "type": "string"
+    },
+    "scenario_family_id": {
+      "type": "string"
+    },
+    "repeat_id": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "group": {
+      "type": "string"
+    },
+    "split": {
+      "enum": [
+        "dev",
+        "id_test",
+        "combo_test",
+        "unseen_test"
+      ]
+    },
+    "template_id": {
+      "type": "string"
+    },
+    "depth_level": {
+      "type": "integer"
+    },
+    "perturbation_level": {
+      "type": "integer"
+    },
+    "env_version": {
+      "type": "string"
+    },
+    "eval_grader_version": {
+      "type": "string"
+    },
+    "dataset_manifest_hash": {
+      "type": "string"
+    },
+    "budget_hash": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    },
+    "infra_error": {
+      "type": "boolean"
+    },
+    "fault_injected": {
+      "type": "boolean"
+    },
+    "recovery_started": {
+      "type": "boolean"
+    },
+    "duplicate_effects": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "premature_completion": {
+      "type": "boolean"
+    },
+    "declared_done": {
+      "type": "boolean"
+    },
+    "generated_tokens": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "input_tokens": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "tool_calls": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "wall_seconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "sim_seconds": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "example_only": {
+      "const": false
+    },
+    "synthetic": {
+      "const": false
+    }
+  },
+  "additionalProperties": true,
+  "description": "One row per planned run. Write explicit infra_error rows for exhausted retries. Keep full manifests/checkpoint hashes/seed/token logs in linked artifacts."
+}
+

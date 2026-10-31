@@ -1,0 +1,96 @@
+{
+  "bundle_version": "1.0",
+  "status": "implementation_document_and_tested_utilities_not_completed_officegym",
+  "files": [
+    {
+      "path": "IMPLEMENTATION_HANDOFF.md",
+      "bytes": 2838,
+      "sha256": "c121ddb0bf842b290647005fd6b2fa0819759e59bbd197a0296ffa40cb436a06"
+    },
+    {
+      "path": "OFFICEGYM_IMPLEMENTATION.md",
+      "bytes": 49869,
+      "sha256": "1fab26b340cba808fcaadd685198e0bedd2aaec0283d5ec57bbbe33950ba895a"
+    },
+    {
+      "path": "README.md",
+      "bytes": 1439,
+      "sha256": "ebc39d55dae39c80d5bc6286e3e83349e5965d99dfc5fefe5685e9f7112317b4"
+    },
+    {
+      "path": "VALIDATION.md",
+      "bytes": 1203,
+      "sha256": "a6382fa35103e66fd67764258a045b5ddb6f35a3e91e45d91f9986e66476745b"
+    },
+    {
+      "path": "configs/grpo_plan.json",
+      "bytes": 974,
+      "sha256": "91234df6c0ba20c887ca462e890f80f1ea273cdaa327a89bb1f3ab62eb244255"
+    },
+    {
+      "path": "configs/project.json",
+      "bytes": 3269,
+      "sha256": "e80b4d90db4d99ed4432e79c776e49b6f5afc5ec86b74653432e8b576ef1f817"
+    },
+    {
+      "path": "configs/sft_plan.json",
+      "bytes": 790,
+      "sha256": "d2c109ae617a6c94f4038b37aaa2c8f2560443262d93222400b8c812f32405ee"
+    },
+    {
+      "path": "contracts/run_plan.schema.json",
+      "bytes": 864,
+      "sha256": "6e755d12ac859032a03a2ff3e59dbc45d829a163e155232990013112460bde3c"
+    },
+    {
+      "path": "contracts/run_result.schema.json",
+      "bytes": 2482,
+      "sha256": "6679a1763921b326d41384d1653c99fb181f36d16ee0755e81d84bf087de1a30"
+    },
+    {
+      "path": "contracts/task.example.json",
+      "bytes": 1414,
+      "sha256": "ae63fe5030d02d52b1aa5dd8d3d37c4c2f4624baf59a9210b728dfb9f36c24e3"
+    },
+    {
+      "path": "contracts/templates.json",
+      "bytes": 4458,
+      "sha256": "113d7287c1a4014234b524f980370dd0d7da9ecb20a84dc4849aaab808093797"
+    },
+    {
+      "path": "contracts/tools.json",
+      "bytes": 6251,
+      "sha256": "93d2d47c2efc94d9ad5130a944684ca9c2d39ee07556465c35375b899c6d00bd"
+    },
+    {
+      "path": "schema/runtime.sql",
+      "bytes": 1164,
+      "sha256": "2d0e50be62d10c058e5f73687b31574716effd4f31f1c5aecb9b65fab797a7e6"
+    },
+    {
+      "path": "schema/world.sql",
+      "bytes": 5167,
+      "sha256": "7a45d03c3be927d338ff5171dce749fe12ad8fa1a282a04ed65861ee3c563ad2"
+    },
+    {
+      "path": "scripts/analyze_results.py",
+      "bytes": 13027,
+      "sha256": "1e33674233190d28d07243b57610dbb6c2efef177196e5842b66b81116c08973"
+    },
+    {
+      "path": "scripts/probe_host.py",
+      "bytes": 2053,
+      "sha256": "c4e929ec9c09a8d0238cd08d4866942d52b3d289f1cf95e4c0cf56cb3b349a87"
+    },
+    {
+      "path": "scripts/validate_contracts.py",
+      "bytes": 1955,
+      "sha256": "1294d61b9c78a2822ce725fe81b1e6dd26cbfeeec68c91321401b78aa329d39a"
+    },
+    {
+      "path": "tests/test_support.py",
+      "bytes": 6387,
+      "sha256": "bf3b38dd05e6f254f6e7334db80eafc4926bacd9a3dc9e1fdbefe3775b1f3808"
+    }
+  ]
+}

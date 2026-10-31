@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OfficeGym frozen run plan row",
+  "type": "object",
+  "required": [
+    "group",
+    "split",
+    "instance_id",
+    "repeat_id",
+    "scenario_family_id",
+    "template_id",
+    "depth_level",
+    "perturbation_level"
+  ],
+  "properties": {
+    "group": {
+      "type": "string"
+    },
+    "split": {
+      "enum": [
+        "dev",
+        "id_test",
+        "combo_test",
+        "unseen_test"
+      ]
+    },
+    "instance_id": {
+      "type": "string"
+    },
+    "repeat_id": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "scenario_family_id": {
+      "type": "string"
+    },
+    "template_id": {
+      "type": "string"
+    },
+    "depth_level": {
+      "type": "integer"
+    },
+    "perturbation_level": {
+      "type": "integer"
+    }
+  },
+  "additionalProperties": true
+}

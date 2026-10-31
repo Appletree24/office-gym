@@ -1,0 +1,104 @@
+{
+  "status": "planned_templates_not_generated_tasks",
+  "templates": [
+    {
+      "id": "T01",
+      "split": "train",
+      "name": "基本会议协调",
+      "goal": "检索参会人及时间约束，选择合法时间并邀请。",
+      "reference_solver_rule": "只通过统一工具客户端读取公开任务与观察；禁止读取 private_spec 或世界数据库。"
+    },
+    {
+      "id": "T02",
+      "split": "train",
+      "name": "延迟回复",
+      "goal": "依据实际回复继续，必要等待，不能靠猜测参会人偏好。",
+      "reference_solver_rule": "只通过统一工具客户端读取公开任务与观察；禁止读取 private_spec 或世界数据库。"
+    },
+    {
+      "id": "T03",
+      "split": "train",
+      "name": "忙闲冲突",
+      "goal": "查询所有必需参与人的忙闲，选取无冲突时间。",
+      "reference_solver_rule": "只通过统一工具客户端读取公开任务与观察；禁止读取 private_spec 或世界数据库。"
+    },
+    {
+      "id": "T04",
+      "split": "train",
+      "name": "正式确认",
+      "goal": "准备方案、请求确认、查询版本绑定确认后邀请。",
+      "reference_solver_rule": "只通过统一工具客户端读取公开任务与观察；禁止读取 private_spec 或世界数据库。"
+    },
+    {
+      "id": "T05",
+      "split": "train",
+      "name": "材料版本",
+      "goal": "查阅并引用最新获批材料，不以文件名代替版本。",
+      "reference_solver_rule": "只通过统一工具客户端读取公开任务与观察；禁止读取 private_spec 或世界数据库。"
+    },
+    {
+      "id": "T06",
+      "split": "train",
+      "name": "会议改期",
+      "goal": "收到变更后更新版本、重新确认、通知合法改期。",
+      "reference_solver_rule": "只通过统一工具客户端读取公开任务与观察；禁止读取 private_spec 或世界数据库。"
+    },
+    {
+      "id": "T07",
+      "split": "train",
+      "name": "参会人变化",
+      "goal": "处理增减参会人，更新审批与正确收件人集合。",
+      "reference_solver_rule": "只通过统一工具客户端读取公开任务与观察；禁止读取 private_spec 或世界数据库。"
+    },
+    {
+      "id": "T08",
+      "split": "train",
+      "name": "会后跟进",
+      "goal": "等待会议结束及纪要，创建有负责人和截止时间的待办。",
+      "reference_solver_rule": "只通过统一工具客户端读取公开任务与观察；禁止读取 private_spec 或世界数据库。"
+    },
+    {
+      "id": "D01",
+      "split": "dev",
+      "name": "冲突与延迟",
+      "goal": "校准深度和扰动，分析等待和重规划失败。",
+      "reference_solver_rule": "只通过统一工具客户端读取公开任务与观察；禁止读取 private_spec 或世界数据库。"
+    },
+    {
+      "id": "D02",
+      "split": "dev",
+      "name": "改期与材料变化",
+      "goal": "检查版本和确认失效以及跟进。",
+      "reference_solver_rule": "只通过统一工具客户端读取公开任务与观察；禁止读取 private_spec 或世界数据库。"
+    },
+    {
+      "id": "U01",
+      "split": "unseen_test",
+      "name": "协调者交接",
+      "goal": "在多阶段中交接协调者并从可见邮件重建责任链。",
+      "reference_solver_rule": "只通过统一工具客户端读取公开任务与观察；禁止读取 private_spec 或世界数据库。"
+    },
+    {
+      "id": "U02",
+      "split": "unseen_test",
+      "name": "参会人替换确认链",
+      "goal": "替换人选后经新的确认链完成会议安排。",
+      "reference_solver_rule": "只通过统一工具客户端读取公开任务与观察；禁止读取 private_spec 或世界数据库。"
+    },
+    {
+      "id": "U03",
+      "split": "unseen_test",
+      "name": "准备事项阻塞会议",
+      "goal": "材料准备待办完成后才能申请正式安排。",
+      "reference_solver_rule": "只通过统一工具客户端读取公开任务与观察；禁止读取 private_spec 或世界数据库。"
+    },
+    {
+      "id": "U04",
+      "split": "unseen_test",
+      "name": "会后责任人变更",
+      "goal": "纪要后变更事项负责人并发出一致的跟进信息。",
+      "reference_solver_rule": "只通过统一工具客户端读取公开任务与观察；禁止读取 private_spec 或世界数据库。"
+    }
+  ]
+}
+

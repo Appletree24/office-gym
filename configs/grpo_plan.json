@@ -1,0 +1,36 @@
+{
+  "format": "project_intent_not_upstream_config",
+  "framework": "verl",
+  "algorithm": "grpo",
+  "starting_checkpoint": "SET_TO_EXPORTED_SFT_HASH",
+  "reference_checkpoint": "SAME_EXPORTED_SFT_HASH",
+  "harness": "full",
+  "compression_allowed": false,
+  "crash_injection_allowed": false,
+  "group_size": 4,
+  "effective_groups_per_update": 8,
+  "max_candidate_group_multiplier": 4,
+  "insufficient_effective_groups": "skip_update_and_log",
+  "same_actor_version_within_update": true,
+  "learning_rate": 1e-06,
+  "lora": {
+    "rank": 16,
+    "alpha": 32
+  },
+  "kl_coefficient": 0.001,
+  "max_tool_calls": 24,
+  "max_context_tokens": 8192,
+  "smoke_updates": 5,
+  "probe_updates": 20,
+  "max_updates": 100,
+  "token_in_token_out": true,
+  "tool_result_loss_mask": 0,
+  "reward": {
+    "full_success": 1,
+    "correct_with_soft_deviation": 0.3,
+    "ordinary_failure": 0,
+    "severe_violation": -1,
+    "soft_rules_enabled": false,
+    "milestones_enabled": false
+  }
+}

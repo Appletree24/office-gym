@@ -1,0 +1,48 @@
+{
+  "example_only": true,
+  "instance_id": "EXAMPLE_T04_0001",
+  "scenario_family_id": "EXAMPLE_FAMILY_0001",
+  "template_id": "T04",
+  "split": "train",
+  "seed": 100001,
+  "depth_level": 1,
+  "perturbation_level": 0,
+  "public_task": {
+    "principal_id": "p_assistant",
+    "goal": "为客户评审安排一场 30 分钟会议；收到负责人对当前方案的正式确认后发送邀请。",
+    "required_participant_ids": [
+      "p_owner",
+      "p_client"
+    ],
+    "allowed_window_utc": [
+      1800086400,
+      1800172800
+    ],
+    "required_document_refs": [
+      {
+        "document_id": "doc_review",
+        "version": 1
+      }
+    ],
+    "deadline_at": 1800172800,
+    "requires_approval": true,
+    "message_cap_per_recipient": 6,
+    "completion_condition": "全部必需参与人收到当前版本邀请，会议无冲突且材料正确。"
+  },
+  "private_spec": {
+    "note": "仅可信生成器和 grader 可读；此示例不是可运行任务，无初始 SQLite。",
+    "initial_snapshot": "initial.sqlite",
+    "scripted_event_rules": "events.json",
+    "reference_trace": "reference.jsonl",
+    "required_checks": [
+      "recipients",
+      "conflicts",
+      "approval_digest",
+      "document_version",
+      "no_unrelated_changes",
+      "message_caps"
+    ],
+    "valid_solution_policy": "判约束是否满足，不比较是否复制参考解时间或调用顺序。"
+  }
+}
+

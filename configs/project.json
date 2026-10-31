@@ -1,0 +1,160 @@
+{
+  "spec_version": "officegym-plan-v1",
+  "status": "implementation_plan_not_measured_results",
+  "model": {
+    "student": "Qwen/Qwen3-4B-Instruct-2507",
+    "revision": "SET_AFTER_SERVER_PROBE",
+    "teacher": "SET_BY_OPERATOR",
+    "api_key_env": "OFFICEGYM_API_KEY"
+  },
+  "counts": {
+    "tools": 24,
+    "templates": 14,
+    "train": 800,
+    "dev": 80,
+    "id_test": 60,
+    "combo_test": 30,
+    "unseen_test": 40,
+    "total": 1010,
+    "probe": 12
+  },
+  "template_partitions": {
+    "train": 8,
+    "dev": 2,
+    "unseen_test": 4
+  },
+  "seed_ranges": {
+    "train": [
+      100000,
+      199999
+    ],
+    "dev": [
+      200000,
+      299999
+    ],
+    "id_test": [
+      300000,
+      399999
+    ],
+    "combo_test": [
+      400000,
+      499999
+    ],
+    "unseen_test": [
+      500000,
+      599999
+    ],
+    "probe": [
+      900000,
+      909999
+    ]
+  },
+  "dedup": {
+    "exact_fingerprint": true,
+    "family_fingerprint": true,
+    "exclude_heldout_combinations_from_training": true
+  },
+  "budget": {
+    "max_tool_calls": 80,
+    "max_sim_seconds": 864000,
+    "max_context_tokens": 12288,
+    "max_generated_tokens": 32768,
+    "max_response_tokens": 1536,
+    "max_wall_seconds": 1800,
+    "compression_trigger_tokens": 8192,
+    "model_context_target_after_compaction": 6144
+  },
+  "training_budget": {
+    "max_tool_calls": 24,
+    "max_sim_seconds": 604800,
+    "max_context_tokens": 8192,
+    "max_generated_tokens": 8192,
+    "max_response_tokens": 1024,
+    "compression_allowed": false
+  },
+  "operator_budget": {
+    "max_api_cost_usd": null,
+    "max_gpu_hours": null,
+    "require_explicit_values_before_model_jobs": true
+  },
+  "evaluation": {
+    "repeats": 3,
+    "bootstrap_samples": 5000,
+    "confidence": 0.95,
+    "bootstrap_seed": 7117,
+    "cluster": "instance_id",
+    "width": 1,
+    "depth_levels": [
+      1,
+      2,
+      3
+    ],
+    "perturbation_levels": [
+      0,
+      1,
+      2
+    ]
+  },
+  "experiments": {
+    "api_simple": {
+      "priority": "P0",
+      "model": "strong_api",
+      "harness": "simple"
+    },
+    "api_full": {
+      "priority": "P0",
+      "model": "strong_api",
+      "harness": "full"
+    },
+    "base_full": {
+      "priority": "P0",
+      "model": "base",
+      "harness": "full"
+    },
+    "sft_full": {
+      "priority": "P0",
+      "model": "sft",
+      "harness": "full"
+    },
+    "grpo_full": {
+      "priority": "P0",
+      "model": "grpo",
+      "harness": "full"
+    },
+    "base_simple": {
+      "priority": "P1",
+      "model": "base",
+      "harness": "simple"
+    },
+    "grpo_simple": {
+      "priority": "P1",
+      "model": "grpo",
+      "harness": "simple"
+    },
+    "rs_sft_full": {
+      "priority": "P1",
+      "model": "rs_sft",
+      "harness": "full"
+    }
+  },
+  "versions": {
+    "environment": "env-v1",
+    "tools": "tools-v1",
+    "generator": "generator-v1",
+    "harness": "harness-v1",
+    "reward": "reward-v1",
+    "eval_grader": "eval-v1"
+  },
+  "reward": {
+    "full_success": 1,
+    "correct_with_soft_deviation": 0.3,
+    "ordinary_failure": 0,
+    "severe_violation": -1,
+    "soft_rules_enabled": false,
+    "milestones_enabled": false
+  },
+  "clock": {
+    "seconds_per_call": 30,
+    "idempotent_replay_consumes_call_and_time": true
+  }
+}

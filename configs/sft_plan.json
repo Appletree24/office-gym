@@ -1,0 +1,33 @@
+{
+  "format": "project_intent_not_upstream_config",
+  "starting_model": "Qwen/Qwen3-4B-Instruct-2507",
+  "teacher_harness": "full",
+  "compression_allowed": false,
+  "max_sequence_tokens": 8192,
+  "assistant_only_loss": true,
+  "include_tool_calls_in_loss": true,
+  "mask_tool_results": true,
+  "teacher_attempts_per_task": 3,
+  "verified_trajectory_target": [
+    200,
+    800
+  ],
+  "lora": {
+    "rank": 16,
+    "alpha": 32,
+    "dropout": 0.05,
+    "target_modules": "all-linear"
+  },
+  "learning_rate": 0.0001,
+  "epochs": 1,
+  "micro_batch_size": 1,
+  "gradient_accumulation_steps": 16,
+  "export_merged_checkpoint": true,
+  "required_checks": [
+    "role/token/mask inspection",
+    "16-sample overfit",
+    "no split leakage",
+    "export equivalence",
+    "dev task success"
+  ]
+}
