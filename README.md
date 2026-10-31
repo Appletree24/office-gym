@@ -17,6 +17,8 @@ PYTHONPATH=src .venv/bin/python -m officegym.cli probe-fault --out artifacts/fau
 
 策略文件访问隔离探针：`PYTHONPATH=src .venv/bin/python -m officegym.eval.isolation_probe --out artifacts/NEW_ISOLATION_PROBE`。配置式 ChatPolicy 评测会启动独立 exec 进程，在空 chroot 中降为 UID/GID 65534，清空补充组和环境，启用 no_new_privs、禁止 dump，并限制继承描述符为 stdin/stdout/stderr。HTTP 请求由可信父进程代理，凭据、世界 socket、数据库、tokenizer 和评分器保留在可信侧；生成与摘要均走有界 JSON 消息通道。需要 Linux root 及 chroot/setuid/setgid 能力；隔离失败保留 INFRA_ERROR，不回退到未隔离执行。每次运行保存 policy_isolation.json，正式结果导出与教师提取校验该证据。自定义 transport 被标记为软件 fixture。此边界目前覆盖 ChatPolicy 评测/教师路径；原生 verl worker 与完整故障模式仍需单独隔离验收。
 
+墙钟预算从 episode 入口统一计时，包含运行准备、世界／策略进程启动和恢复间隔；工具返回后再次检查，超时的 task.finish 不计正常完成。工具 RPC 与策略启动的超时上限取剩余预算。恢复日志绑定单调时钟起点与 boot／时钟命名空间身份；跨重启或身份变化拒绝续跑，不重置预算。结果中的 runner_wall_seconds 还包含策略停止后的清理和评分开销。
+
 
 原始设计与命令合同见 OFFICEGYM_IMPLEMENTATION.md；阶段要求见 IMPLEMENTATION_HANDOFF.md；剩余范围见 IMPLEMENTATION_STATUS.md。configs 中 null 预算不表示无限许可，训练配置仍需按实际安装版本映射及验证。统计脚本要求完整运行计划和真实结果，禁止将示例或探针数据写成正式评测。
 

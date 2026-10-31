@@ -13,9 +13,14 @@ from officegym.graders.operations import reconcile
 from .artifacts import write_json
 
 
+class EpisodeWallBudgetExhausted(TimeoutError):
+    pass
+
+
 def run_episode(instance_dir,out,policy,*,mode='full',budget=None,context_manager=None,initial_metadata=None):
     if mode not in ('simple','full'):
         raise ValueError('unknown harness mode')
+    started=time.monotonic()
     initial_metadata = initial_metadata or {}
     if not isinstance(initial_metadata,dict) or set(initial_metadata)-{'resolved_eval_config.json','tokenizer_manifest.json'}:
         raise ValueError('unsupported initial episode metadata')
@@ -51,21 +56,31 @@ def run_episode(instance_dir,out,policy,*,mode='full',budget=None,context_manage
     original_policy = policy
     context_policy_replaced = False
     termination = {'state':'INFRA_ERROR'}
-    started = time.monotonic()
     error = None
+    deadline=started+budget.wall_seconds
+    def remaining_wall():
+        remaining=deadline-time.monotonic()
+        if remaining<=0:
+            raise EpisodeWallBudgetExhausted('episode execution wall budget exhausted')
+        return remaining
+    def bounded_call(name,arguments,operation_id=None):
+        return Client(socket_path,timeout=min(30,remaining_wall())).call(name,arguments,operation_id)
     from officegym.harness.policy import ChatPolicy
     requires_isolation=isinstance(policy,ChatPolicy) or getattr(policy,'policy_kind',None)=='inference_service'
     isolation_evidence=dict(version='policy-chroot-v1',verified=False,status='not_started') if requires_isolation else dict(version='software_fixture_not_isolated',verified=False)
     write_json(out/'policy_isolation.json',isolation_evidence)
     try:
+        remaining_wall()
         process.start()
         while not socket_path.exists():
+            remaining_wall()
             if not process.is_alive() or time.monotonic()-started>10:
                 raise RuntimeError('world service startup failed')
-            time.sleep(.01)
+            time.sleep(min(.01,remaining_wall()))
+        remaining_wall()
         if requires_isolation:
             from officegym.harness.isolation import IsolatedPolicy
-            isolated_policy=IsolatedPolicy(policy,protected_paths=[instance_dir/'private_spec.json',instance_dir/'event_rules.json',instance_dir/'initial_world.sqlite',world_path,Path(__file__).parents[1]/'graders'/'result.py'])
+            isolated_policy=IsolatedPolicy(policy,protected_paths=[instance_dir/'private_spec.json',instance_dir/'event_rules.json',instance_dir/'initial_world.sqlite',world_path,Path(__file__).parents[1]/'graders'/'result.py'],startup_seconds=min(10,remaining_wall()))
             isolation_evidence=isolated_policy.evidence
             write_json(out/'policy_isolation.json',isolation_evidence)
             if context_manager is not None and hasattr(context_manager,'policy'):
@@ -74,16 +89,21 @@ def run_episode(instance_dir,out,policy,*,mode='full',budget=None,context_manage
                 context_manager.policy=isolated_policy
                 context_policy_replaced=True
             policy=isolated_policy
+        remaining_wall()
         journal = Journal(out/'runtime.sqlite') if mode=='full' else None
-        harness = Harness(policy,Client(socket_path).call,public,out/'trajectory.jsonl',budget,journal,context_manager)
-        termination = harness.run()
+        harness = Harness(policy,bounded_call,public,out/'trajectory.jsonl',budget,journal,context_manager)
+        termination = harness.run(started_at=started)
     except Exception as exc:
-        error = {'type':type(exc).__name__,'message':str(exc)}
+        budget_stop=isinstance(exc,EpisodeWallBudgetExhausted) or isinstance(exc,TimeoutError) and time.monotonic()>=deadline
+        if budget_stop:
+            termination=dict(state='BUDGET_STOP',tool_calls=0,generated_tokens=0,input_tokens=0,wall_seconds=time.monotonic()-started)
+        else:
+            error = {'type':type(exc).__name__,'message':str(exc)}
         if not isolation_evidence.get('verified') and requires_isolation:
-            isolation_evidence.update(status='failed',error_type=type(exc).__name__)
+            isolation_evidence.update(status='budget_exhausted' if budget_stop else 'failed',error_type=type(exc).__name__)
             write_json(out/'policy_isolation.json',isolation_evidence)
         if not (out/'trajectory.jsonl').exists():
-            (out/'trajectory.jsonl').write_text(canonical(dict(kind='infrastructure_failure_before_policy',error_type=type(exc).__name__))+'\n')
+            (out/'trajectory.jsonl').write_text(canonical(dict(kind='wall_budget_exhausted_before_policy' if budget_stop else 'infrastructure_failure_before_policy',error_type=type(exc).__name__))+'\n')
     finally:
         if context_policy_replaced:
             context_manager.policy=original_policy

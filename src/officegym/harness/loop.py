@@ -12,6 +12,14 @@ from officegym.tools.schema import WRITES, tool_schemas
 from .versions import HARNESS_VERSION
 
 
+def wall_clock_identity():
+    # A monotonic origin is reusable only on the same boot/clock namespace.
+    boot=Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+    namespace=Path('/proc/self/ns/time')
+    identity=dict(boot=boot,time_namespace=os.readlink(namespace) if namespace.exists() else 'kernel-monotonic',implementation=time.get_clock_info('monotonic').implementation)
+    return hashlib.sha256(canonical(identity).encode()).hexdigest()
+
+
 @dataclass(frozen=True)
 class Budget:
     tool_calls: int = 200
@@ -58,6 +66,7 @@ class Harness:
         self.restored = False
         self.pending_actions = {}
         self.parse_failures = 0
+        self.wall_origin = None
 
     def restore(self):
         if self.restored:
@@ -71,6 +80,12 @@ class Harness:
             raise ValueError('cannot change model version while resuming')
         if rows[0]['mode'] != ('full' if self.journal else 'simple'):
             raise ValueError('cannot change harness mode while resuming')
+        anchor=rows[0].get('wall_clock',{})
+        origin=anchor.get('monotonic_origin')
+        now=time.monotonic()
+        import math
+        if anchor.get('identity')!=wall_clock_identity() or type(origin) not in (int,float) or not math.isfinite(origin) or origin>now:
+            raise ValueError('cannot resume a missing or changed monotonic clock identity')
         pending = {}
         for row in rows:
             self.prior_usage['wall_seconds'] = max(self.prior_usage['wall_seconds'],row.get('elapsed_wall_seconds',0))
@@ -95,6 +110,10 @@ class Harness:
                 self.prior_usage['wall_seconds'] = max(self.prior_usage['wall_seconds'],row['wall_seconds'])
                 if row['state'] in ('DECLARED_DONE','PARSE_ERROR'):
                     raise ValueError('cannot resume declared-finished episode')
+        now=time.monotonic()
+        self.prior_usage['wall_seconds']=max(self.prior_usage['wall_seconds'],now-origin)
+        # Retain any larger logged usage conservatively; never recover more time.
+        self.wall_origin=min(origin,now-self.prior_usage['wall_seconds'])
         self.pending_actions = pending
         self.restored = True
         return dict(self.prior_usage)
@@ -102,11 +121,10 @@ class Harness:
     def reconcile_pending(self):
         if not self.restored or not self.journal:
             raise ValueError('durable full-mode restoration required')
-        recovery_started = time.monotonic()
-        base_elapsed = self.prior_usage['wall_seconds']
+        self.prior_usage['wall_seconds']=time.monotonic()-self.wall_origin
         with open(self.trace_path,'a') as stream:
             def append(record):
-                self.prior_usage['wall_seconds'] = base_elapsed+time.monotonic()-recovery_started
+                self.prior_usage['wall_seconds'] = time.monotonic()-self.wall_origin
                 record = dict(record,elapsed_wall_seconds=self.prior_usage['wall_seconds'])
                 stream.write(canonical(record)+'\n')
                 stream.flush()
@@ -116,7 +134,7 @@ class Harness:
                     raise ValueError('uncertain read/control requires explicit episode handling')
                 if self.prior_usage['tool_calls']>=self.budget.tool_calls:
                     raise ValueError('no remaining recovery tool budget')
-                if base_elapsed+time.monotonic()-recovery_started>=self.budget.wall_seconds:
+                if time.monotonic()-self.wall_origin>=self.budget.wall_seconds:
                     raise ValueError('recovery wall budget exhausted')
                 query_id = uuid.uuid4().hex
                 arguments = {'operation_id':action['operation_id']}
@@ -131,7 +149,7 @@ class Harness:
                 if query['data']['committed']:
                     result = dict(ok=True,data=query['data']['result'],error=None,meta=query['meta'])
                 else:
-                    if self.prior_usage['tool_calls']>=self.budget.tool_calls or base_elapsed+time.monotonic()-recovery_started>=self.budget.wall_seconds:
+                    if self.prior_usage['tool_calls']>=self.budget.tool_calls or time.monotonic()-self.wall_origin>=self.budget.wall_seconds:
                         raise ValueError('no remaining recovery retry budget')
                     append(dict(action,kind='action_start',retry_same_key=True))
                     self.prior_usage['tool_calls'] += 1
@@ -148,10 +166,18 @@ class Harness:
                     self.journal.acknowledge(action['operation_id'],result,reconciled=True)
                 del self.pending_actions[action_id]
 
-    def run(self):
+    def run(self,*,started_at=None):
         if self.pending_actions:
             raise ValueError('unresolved actions require reconcile_pending before continuing')
-        started = time.monotonic()
+        now=time.monotonic()
+        if started_at is not None:
+            import math
+            if type(started_at) not in (int,float) or not math.isfinite(started_at) or started_at>now:
+                raise ValueError('wall origin must be a finite past monotonic timestamp')
+        if self.restored and started_at is not None:
+            raise ValueError('recovery must retain its frozen wall clock origin')
+        started=self.wall_origin if self.restored else now if started_at is None else started_at
+        self.wall_origin=started
         if Path(self.trace_path).exists() and Path(self.trace_path).stat().st_size and not self.restored:
             raise ValueError('existing trace requires explicit restore')
         calls,generated,inputs = (self.prior_usage[key] for key in ('tool_calls','generated_tokens','input_tokens'))
@@ -159,15 +185,15 @@ class Harness:
         self.state = 'RUNNING'
         with open(self.trace_path,'a') as trace:
             def log(item):
-                item = dict(item,elapsed_wall_seconds=self.prior_usage['wall_seconds']+time.monotonic()-started)
+                item = dict(item,elapsed_wall_seconds=time.monotonic()-started)
                 trace.write(canonical(item)+'\n')
                 trace.flush()
                 os.fsync(trace.fileno())
             if not self.restored:
-                log({'kind':'run_header','harness_version':HARNESS_VERSION,'task_sha256':hashlib.sha256(canonical(self.task).encode()).hexdigest(),'budget':asdict(self.budget),'mode':'full' if self.journal else 'simple','model_version':getattr(self.policy,'model_version',None),'initial_messages':self.messages,'tool_schemas':tool_schemas()})
+                log({'kind':'run_header','wall_clock':dict(monotonic_origin=started,identity=wall_clock_identity()),'harness_version':HARNESS_VERSION,'task_sha256':hashlib.sha256(canonical(self.task).encode()).hexdigest(),'budget':asdict(self.budget),'mode':'full' if self.journal else 'simple','model_version':getattr(self.policy,'model_version',None),'initial_messages':self.messages,'tool_schemas':tool_schemas()})
             while True:
                 remaining = dict(tool_calls=self.budget.tool_calls-calls, generated_tokens=self.budget.generated_tokens-generated,
-                                 wall_seconds=self.budget.wall_seconds-self.prior_usage['wall_seconds']-(time.monotonic()-started))
+                                 wall_seconds=self.budget.wall_seconds-(time.monotonic()-started))
                 if any(value <= 0 for value in remaining.values()):
                     self.state = 'BUDGET_STOP'
                     break
@@ -186,21 +212,22 @@ class Harness:
                         generated += context_info.get('summary_output_tokens',0)
                         inputs += context_info.get('summary_input_tokens',0)
                         remaining['generated_tokens'] = self.budget.generated_tokens-generated
-                        remaining['wall_seconds'] = self.budget.wall_seconds-self.prior_usage['wall_seconds']-(time.monotonic()-started)
+                        remaining['wall_seconds'] = self.budget.wall_seconds-(time.monotonic()-started)
                         if remaining['generated_tokens']<=0 or remaining['wall_seconds']<=0:
                             self.state = 'BUDGET_STOP'
                             break
                     turn = self.policy.generate(model_messages,tool_schemas(),remaining)
                 except Exception as exc:
-                    log({'kind':'infrastructure_error','error_type':type(exc).__name__})
-                    self.state = 'INFRA_ERROR'
+                    exhausted=time.monotonic()-started>=self.budget.wall_seconds
+                    log({'kind':'wall_budget_exhausted' if exhausted else 'infrastructure_error','error_type':type(exc).__name__})
+                    self.state = 'BUDGET_STOP' if exhausted else 'INFRA_ERROR'
                     break
                 if not isinstance(turn,AssistantTurn) or type(turn.input_tokens) is not int or type(turn.output_tokens) is not int or min(turn.input_tokens,turn.output_tokens)<0:
                     raise ValueError('policy must return AssistantTurn with measured token usage')
                 generated += turn.output_tokens
                 inputs += turn.input_tokens
                 log({'kind':'model_response','tool':turn.tool,'arguments':turn.arguments,'raw':turn.raw,'content':turn.content,'input_tokens':turn.input_tokens,'output_tokens':turn.output_tokens})
-                if generated > self.budget.generated_tokens or self.prior_usage['wall_seconds']+time.monotonic()-started >= self.budget.wall_seconds:
+                if generated > self.budget.generated_tokens or time.monotonic()-started >= self.budget.wall_seconds:
                     self.state = 'BUDGET_STOP'
                     break
                 if not isinstance(turn.tool,str) or not isinstance(turn.arguments,dict):
@@ -220,8 +247,9 @@ class Harness:
                 try:
                     result = self.call(turn.tool,turn.arguments,operation)
                 except Exception as exc:
-                    log({'kind':'infrastructure_error','error_type':type(exc).__name__,'operation_id':operation})
-                    self.state = 'INFRA_ERROR'
+                    exhausted=time.monotonic()-started>=self.budget.wall_seconds
+                    log({'kind':'wall_budget_exhausted' if exhausted else 'infrastructure_error','error_type':type(exc).__name__,'operation_id':operation})
+                    self.state = 'BUDGET_STOP' if exhausted else 'INFRA_ERROR'
                     break
                 if self.journal and turn.tool in WRITES:
                     self.journal.acknowledge(operation,result)
@@ -231,12 +259,15 @@ class Harness:
                     pair[0]['content'] = turn.content
                 self.messages.extend(pair)
                 log({'kind':'interaction','messages':pair,'operation_id':operation,'action_id':action_id})
+                if time.monotonic()-started>=self.budget.wall_seconds:
+                    self.state='BUDGET_STOP'
+                    break
                 if turn.tool == 'task.finish' and result['ok']:
                     self.state = 'DECLARED_DONE'
                     break
                 if result.get('error') and result['error']['code']=='BUDGET_EXHAUSTED':
                     self.state = 'BUDGET_STOP'
                     break
-            summary = dict(state=self.state,tool_calls=calls,generated_tokens=generated,input_tokens=inputs,wall_seconds=self.prior_usage['wall_seconds']+time.monotonic()-started)
+            summary = dict(state=self.state,tool_calls=calls,generated_tokens=generated,input_tokens=inputs,wall_seconds=time.monotonic()-started)
             log({'kind':'termination',**summary})
             return summary

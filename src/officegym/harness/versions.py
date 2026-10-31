@@ -1,1 +1,1 @@
-HARNESS_VERSION = 'harness-v4-isolated-chat-policy'
+HARNESS_VERSION = 'harness-v5-startup-wall-budget'

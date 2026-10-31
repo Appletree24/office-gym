@@ -123,7 +123,9 @@ def require_isolation(run_dir,result,*,allow_startup_failure=False):
     if evidence!=result.get('policy_isolation') or evidence.get('version')!=ISOLATION_VERSION:
         raise ValueError('policy isolation evidence differs or is obsolete')
     if not evidence.get('verified'):
-        if allow_startup_failure and result.get('infrastructure_error') and result.get('termination',{}).get('state')=='INFRA_ERROR' and evidence.get('status') in ('failed','not_started'):
+        startup_failure=result.get('infrastructure_error') and result.get('termination',{}).get('state')=='INFRA_ERROR' and evidence.get('status') in ('failed','not_started')
+        startup_budget_stop=not result.get('infrastructure_error') and result.get('termination',{}).get('state')=='BUDGET_STOP' and evidence.get('status')=='budget_exhausted'
+        if allow_startup_failure and (startup_failure or startup_budget_stop):
             trace=Path(run_dir)/'trajectory.jsonl'
             rows=[json.loads(line) for line in trace.read_text().splitlines() if line.strip()]
             if any(row.get('kind') in ('model_response','interaction') for row in rows):
