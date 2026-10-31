@@ -6,7 +6,7 @@ import importlib.metadata
 import subprocess
 from pathlib import Path
 from officegym.env.world import canonical
-from officegym.tools.schema import tool_schemas,CONTRACT
+from officegym.tools.schema import tool_schemas,CONTRACT,TOOL_SCHEMA_VERSION
 from officegym.tools.output_schema import TOOL_RESULT_SCHEMA
 
 
@@ -31,5 +31,5 @@ def provenance(instance_dir,policy):
     return {'git_commit':git('rev-parse','HEAD'),'git_dirty':bool(git('status','--porcelain')) if source_checkout else None,'source_kind':'checkout' if source_checkout else 'installed_distribution','source_sha256':hashlib.sha256(canonical(files).encode()).hexdigest(),
             'instance_artifact_sha256':artifacts,'packages':packages,'model_version':getattr(policy,'model_version',None),
             'tool_schema_sha256':hashlib.sha256(canonical({'input':tool_schemas(),'output':TOOL_RESULT_SCHEMA}).encode()).hexdigest(),
-            'tool_counts':categories,'env_version':'env-v1','tool_schema_version':'tools-v1','harness_version':HARNESS_VERSION,
+            'tool_counts':categories,'env_version':'env-v1','tool_schema_version':TOOL_SCHEMA_VERSION,'harness_version':HARNESS_VERSION,
             'reward_version':REWARD_VERSION,'eval_grader_version':EVAL_GRADER_VERSION}

@@ -1,1 +1,1 @@
-HARNESS_VERSION = 'harness-v5-startup-wall-budget'
+HARNESS_VERSION = 'harness-v6-public-event-observations'

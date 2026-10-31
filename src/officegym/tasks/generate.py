@@ -4,6 +4,8 @@ from pathlib import Path
 from officegym.env.world import World,canonical
 from officegym.tools.dispatcher import Dispatcher
 from .artifacts import write_instance
+from .reference import REFERENCE_VERSION
+from officegym.tools.schema import TOOL_SCHEMA_VERSION
 from .integrity import validate_unique,check_holdout
 from .dependencies import dependency_edges
 from .controls import PROFILE,material
@@ -149,6 +151,6 @@ def generate(out,templates=TRAIN_TEMPLATES,count_per_template=3,seed=None,split=
                 finally:
                     world.close()
     validate_unique(entries)
-    manifest = dict(task_generator_version='generator-v3-controlled-width',status='development_distribution_not_frozen',heldout_signatures=HELDOUT_SIGNATURES,instances=entries)
+    manifest = dict(task_generator_version='generator-v3-controlled-width',reference_solver_version=REFERENCE_VERSION,tool_schema_version=TOOL_SCHEMA_VERSION,status='development_distribution_not_frozen',heldout_signatures=HELDOUT_SIGNATURES,instances=entries)
     (root/'manifest.json').write_text(canonical(manifest)+'\n')
     return manifest

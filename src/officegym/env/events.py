@@ -141,6 +141,8 @@ def process_due(client):
         db.execute("UPDATE scheduled_events SET status='applied' WHERE id=?", (row['id'],))
 
 
+PUBLIC_EVENT_FIELDS=('seq','event_id','sim_time','actor_id','cause_operation_id','cause_event_id','kind','object_type','object_id','business_version','details_json')
+
 def poll(client, args):
     from officegym.tools.dispatcher import ToolError
     after, limit = args['after_seq'], args.get('limit',50)
@@ -148,4 +150,4 @@ def poll(client, args):
         raise ToolError('INVALID_ARGUMENT')
     rows = [dict(row) for row in client.db.execute('SELECT * FROM event_log WHERE seq>? ORDER BY seq', (after,))
             if visible(row['visibility_json'],client.meta('principal_id'))]
-    return {'items':rows[:limit], 'next_seq':rows[min(len(rows),limit)-1]['seq'] if rows else after}
+    return {'items':[{key:row[key] for key in PUBLIC_EVENT_FIELDS} for row in rows[:limit]], 'next_seq':rows[min(len(rows),limit)-1]['seq'] if rows else after}

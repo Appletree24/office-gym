@@ -1,5 +1,5 @@
 {
-  "version": "tools-v1",
+  "version": "tools-v2-public-events",
   "status": "interface_contract_not_server_implementation",
   "common": {
     "trusted_injected": [
@@ -116,7 +116,7 @@
       "required_arguments": [
         "after_seq"
       ],
-      "description": "读取主体可见事件；不暴露未来私有队列。"
+      "description": "Poll visible business-event facts after a sequence. Audit snapshots stay private; read object content through its authorized business tool."
     },
     {
       "name": "mail.send",
@@ -229,4 +229,3 @@
     }
   ]
 }
-

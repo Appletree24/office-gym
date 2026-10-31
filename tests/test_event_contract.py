@@ -42,3 +42,17 @@ class EventContractTests(unittest.TestCase):
                 (root/'tasks'/'manifest.json').write_text(json.dumps(manifest))
                 with self.assertRaisesRegex(ValueError,'differ'):
                     validate_dataset(root/'tasks'/'manifest.json')
+
+    def test_rehashed_trace_cannot_mix_tool_observation_versions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)/'data'
+            manifest=generate(root,templates=['T01'],count_per_template=1)
+            entry=manifest['instances'][0]
+            trace_path=root/entry['path']/'reference_trace.jsonl'
+            rows=[json.loads(line) for line in trace_path.read_text().splitlines()]
+            rows[0]['result']['meta']['tool_schema_version']='obsolete-tools'
+            trace_path.write_text(''.join(json.dumps(row)+'\n' for row in rows))
+            entry['files_sha256']['reference_trace.jsonl']=hashlib.sha256(trace_path.read_bytes()).hexdigest()
+            (root/'manifest.json').write_text(json.dumps(manifest))
+            with self.assertRaisesRegex(ValueError,'trace tool schema version'):
+                validate_dataset(root/'manifest.json')

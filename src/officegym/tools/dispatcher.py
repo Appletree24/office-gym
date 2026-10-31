@@ -4,7 +4,7 @@ import json
 import sqlite3
 from officegym.env.world import canonical
 from officegym.env.events import process_due, next_visible, poll
-from .schema import validate, WRITES
+from .schema import validate, WRITES, TOOL_SCHEMA_VERSION
 
 
 class ToolError(Exception):
@@ -78,7 +78,7 @@ class Dispatcher:
                         self.db.execute('RELEASE action')
                         error = str(exc) if isinstance(exc, ToolError) else 'INVALID_ARGUMENT'
         return {'ok': error is None, 'data': data, 'error': {'code': error} if error else None,
-                'meta': {'sim_time': self.meta('sim_time'), 'observation_id': f"obs_{self.meta('tool_calls'):06d}", 'tool_schema_version': 'tools-v1'}}
+                'meta': {'sim_time': self.meta('sim_time'), 'observation_id': f"obs_{self.meta('tool_calls'):06d}", 'tool_schema_version': TOOL_SCHEMA_VERSION}}
 
     def execute(self, name, args):
         if name in ('mail.search', 'mail.get_thread', 'mail.send'):

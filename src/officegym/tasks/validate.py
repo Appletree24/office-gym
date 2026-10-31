@@ -62,6 +62,8 @@ def validate_dataset(manifest_path):
         if not grade.get('full_success'):
             raise ValueError('reference did not pass')
         trace = [json.loads(line) for line in (directory/'reference_trace.jsonl').read_text().splitlines() if line.strip()]
+        if manifest.get('tool_schema_version') is not None and any(row.get('result',{}).get('meta',{}).get('tool_schema_version')!=manifest['tool_schema_version'] for row in trace):
+            raise ValueError('reference trace tool schema version differs from manifest')
         if not trace or not any(row.get('tool')=='task.finish' and row.get('result',{}).get('ok') for row in trace):
             raise ValueError('missing completed reference trace')
         db = sqlite3.connect((directory/'initial_world.sqlite').as_uri()+'?mode=ro',uri=True)

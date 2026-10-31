@@ -3,6 +3,9 @@ import json
 from officegym.env.world import canonical as canonical_followup
 
 
+REFERENCE_VERSION='reference-v2-shared-event-cursor'
+
+
 def solve(task, call):
     counter = 0
     sim_time = None
@@ -84,11 +87,25 @@ def solve(task, call):
         return approval_id
     approval_id = confirm(meeting)
     invoke('mail.send',dict(recipient_ids=people,kind='invitation',subject=meeting['title'],body='',meeting_id=meeting['id'],meeting_version=meeting['version'],approval_id=approval_id,attachment_refs=task.get('required_attachment_refs',[])),True)
+    cursor = 0
+    observed_minutes = {}
+    owner_changes = []
+    def poll_events():
+        nonlocal cursor
+        events = invoke('events.poll',{'after_seq':cursor})
+        cursor = events['next_seq']
+        for event in events['items']:
+            if event['kind']=='MinutesAvailable':
+                facts=json.loads(event['details_json'])
+                observed_minutes[facts['meeting_id']]=facts
+            elif event['kind']=='Notification':
+                facts=json.loads(event['details_json'])
+                if facts.get('type')=='TodoOwnerChanged':
+                    owner_changes.append(facts)
+        return events
     if task.get('monitor_until') is not None:
-        cursor = 0
         for _ in range(40):
-            events = invoke('events.poll',{'after_seq':cursor})
-            cursor = events['next_seq']
+            events = poll_events()
             for event in events['items']:
                 if event['kind'] not in ('MeetingRescheduleRequested','AttendeeChanged','DocumentVersionPublished'):
                     continue
@@ -121,16 +138,12 @@ def solve(task, call):
         else:
             raise RuntimeError('monitoring reference budget exhausted')
     if task.get('followup_required'):
-        cursor = 0
-        minutes = None
+        minutes=observed_minutes.get(meeting['id'])
         for _ in range(40):
-            events = invoke('events.poll',{'after_seq':cursor})
-            cursor = events['next_seq']
-            for event in events['items']:
-                if event['kind'] == 'MinutesAvailable':
-                    facts = json.loads(event['details_json'])
-                    if facts.get('meeting_id') == meeting['id']:
-                        minutes = facts
+            if minutes is not None:
+                break
+            poll_events()
+            minutes=observed_minutes.get(meeting['id'])
             if minutes is not None:
                 break
             invoke('clock.wait',{'until':task['deadline_at']})
@@ -142,13 +155,11 @@ def solve(task, call):
             created_todos[action['title']] = todo
         if task.get('followup_monitor_until'):
             for _ in range(40):
-                events = invoke('events.poll',{'after_seq':cursor})
-                cursor = events['next_seq']
-                for event in events['items']:
-                    if event['kind'] != 'Notification':
-                        continue
-                    facts = json.loads(event['details_json'])
-                    if facts.get('type')!='TodoOwnerChanged' or facts.get('meeting_id')!=meeting['id']:
+                events = poll_events()
+                changes=list(owner_changes)
+                owner_changes.clear()
+                for facts in changes:
+                    if facts.get('meeting_id')!=meeting['id']:
                         continue
                     todo = created_todos[facts['title']]
                     todo = invoke('todos.update',dict(todo_id=todo['id'],expected_version=todo['version'],patch={'assignee_id':facts['assignee_id']}),True)

@@ -139,7 +139,7 @@
   },
   "versions": {
     "environment": "env-v1",
-    "tools": "tools-v1",
+    "tools": "tools-v2-public-events",
     "generator": "generator-v1",
     "harness": "harness-v1",
     "reward": "reward-v1",
