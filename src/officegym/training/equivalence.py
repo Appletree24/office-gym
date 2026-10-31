@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 from officegym.eval.artifacts import write_json
-from .merge import validate_merge_plan,check_packages
+from .merge import validate_merge_plan,check_packages,configure_memory
 from .checkpoints import checkpoint_fingerprint
 from .launch import execute_bounded
 
@@ -79,6 +79,7 @@ def worker(plan_path,sha256,out):
     import torch
     from transformers import AutoModelForCausalLM
     from peft import PeftModel
+    configure_memory(base)
     torch.manual_seed(0);torch.use_deterministic_algorithms(True)
     root=Path(out)
     def snapshots(model,label):
@@ -95,13 +96,13 @@ def worker(plan_path,sha256,out):
             torch.save(dict(input_ids=probe['input_ids'],next_token_logits=logits,generated_ids=sequence[len(probe['input_ids']):]),artifact)
             results.append(dict(case_id=probe['case_id'],logits=logits.tolist(),generated_ids=sequence[len(probe['input_ids']):],artifact=str(artifact),sha256=digest(artifact)))
         return results
-    model=AutoModelForCausalLM.from_pretrained(base['base_model_path'],revision=base['base_revision'],local_files_only=True,trust_remote_code=False,torch_dtype=getattr(torch,base['dtype'])).to(base['device'])
+    model=AutoModelForCausalLM.from_pretrained(base['base_model_path'],revision=base['base_revision'],local_files_only=True,trust_remote_code=False,dtype=getattr(torch,base['dtype']),attn_implementation='sdpa').to(base['device'])
     model=PeftModel.from_pretrained(model,base['adapter_path'],local_files_only=True,is_trainable=False)
     before=snapshots(model,'adapter')
     del model
     if base['device']=='cuda':
         torch.cuda.empty_cache()
-    model=AutoModelForCausalLM.from_pretrained(merged['model_path'],local_files_only=True,trust_remote_code=False,torch_dtype=getattr(torch,base['dtype'])).to(base['device'])
+    model=AutoModelForCausalLM.from_pretrained(merged['model_path'],local_files_only=True,trust_remote_code=False,dtype=getattr(torch,base['dtype']),attn_implementation='sdpa').to(base['device'])
     after=snapshots(model,'merged')
     comparisons=[]
     for left,right in zip(before,after):
@@ -109,7 +110,7 @@ def worker(plan_path,sha256,out):
         comparisons.append(dict(case_id=left['case_id'],logits=comparison,generation_equal=left['generated_ids']==right['generated_ids']))
     rate=sum(row['generation_equal'] for row in comparisons)/len(comparisons)
     passed=all(row['logits']['within_tolerance'] for row in comparisons) and rate>=plan['min_generation_match_rate']
-    report=dict(passed=False,passed_numeric=passed,tool_behavior='pending',logit_positions='last_input_token_full_vocabulary',generation_match_rate=rate,
+    report=dict(peak_allocated_bytes=torch.cuda.max_memory_allocated() if base['device']=='cuda' else None,passed=False,passed_numeric=passed,tool_behavior='pending',logit_positions='last_input_token_full_vocabulary',generation_match_rate=rate,
                 thresholds=dict(logit_atol=plan['logit_atol'],min_generation_match_rate=plan['min_generation_match_rate']),comparisons=comparisons,before=before,after=after,
                 source_checkpoint_files_sha256=merged['training_source']['source_checkpoint_files_sha256'],optimizer_step=base['optimizer_step'],exported_checkpoint_sha256=merged['exported_checkpoint_sha256'],plan_sha256=sha256)
     validate(plan)  # Reject source/probe changes during the model computations.
@@ -117,14 +118,14 @@ def worker(plan_path,sha256,out):
     return report
 
 
-def verify(plan_path,out):
+def verify(plan_path,out,*,own_process_group=True):
     plan=json.loads(Path(plan_path).read_text())
     base,_,_=validate(plan);check_packages(base)
     root=Path(out).resolve();root.mkdir(parents=True,exist_ok=False)
     frozen=root/'resolved_numeric_plan.json';write_json(frozen,plan)
     command=[sys.executable,'-m','officegym.training.equivalence','--worker-plan',str(frozen),'--sha256',digest(frozen),'--out',str(root)]
     with (root/'numeric.stdout.log').open('w') as stdout,(root/'numeric.stderr.log').open('w') as stderr:
-        status=execute_bounded(command,stdout,stderr,plan['max_wall_seconds'])
+        status=execute_bounded(command,stdout,stderr,plan['max_wall_seconds'],own_process_group=own_process_group)
     status['full_equivalence_verified']=False
     write_json(root/'numeric_process.json',status)
     return status

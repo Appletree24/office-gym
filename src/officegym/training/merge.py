@@ -17,6 +17,8 @@ def validate_merge_plan(plan):
         raise ValueError('missing resolved merge fields: '+','.join(sorted(required-set(plan))))
     if plan['device'] not in ('cpu','cuda') or plan['dtype'] not in ('float32','float16','bfloat16'):
         raise ValueError('explicit supported merge device/dtype required')
+    if plan['device']=='cuda' and (type(plan.get('max_allocated_bytes')) is not int or plan['max_allocated_bytes']<1):
+        raise ValueError('finite CUDA allocator byte cap required')
     if type(plan['max_wall_seconds']) not in (int,float) or not math.isfinite(plan['max_wall_seconds']) or plan['max_wall_seconds']<=0:
         raise ValueError('finite merge wall budget required')
     for name in ('max_shard_size_bytes','max_export_bytes'):
@@ -51,6 +53,16 @@ def check_packages(plan):
             raise ValueError('merge runtime package differs from lock: '+package)
 
 
+def configure_memory(plan):
+    import torch
+    if plan['device']=='cuda':
+        if not torch.cuda.is_available():raise ValueError('CUDA merge/equivalence requires actual GPU')
+        total=torch.cuda.get_device_properties(0).total_memory
+        if plan['max_allocated_bytes']>total:raise ValueError('allocator cap exceeds device memory')
+        torch.cuda.set_per_process_memory_fraction(plan['max_allocated_bytes']/total)
+        torch.cuda.reset_peak_memory_stats()
+
+
 def worker(plan_path,sha256,out):
     payload=Path(plan_path).read_bytes()
     if hashlib.sha256(payload).hexdigest()!=sha256:
@@ -63,7 +75,8 @@ def worker(plan_path,sha256,out):
     import torch
     from transformers import AutoModelForCausalLM,AutoTokenizer
     from peft import PeftModel
-    model=AutoModelForCausalLM.from_pretrained(plan['base_model_path'],revision=plan['base_revision'],local_files_only=True,trust_remote_code=False,torch_dtype=getattr(torch,plan['dtype']))
+    configure_memory(plan)
+    model=AutoModelForCausalLM.from_pretrained(plan['base_model_path'],revision=plan['base_revision'],local_files_only=True,trust_remote_code=False,dtype=getattr(torch,plan['dtype']),attn_implementation='sdpa')
     model.to(plan['device'])
     model=PeftModel.from_pretrained(model,plan['adapter_path'],local_files_only=True,is_trainable=False)
     model.eval()
@@ -81,13 +94,13 @@ def worker(plan_path,sha256,out):
     actual_bytes=sum(path.stat().st_size for path in target.rglob('*') if path.is_file())
     if actual_bytes>plan['max_export_bytes']:
         raise ValueError('saved model exceeds export byte budget; partial artifacts retained')
-    report=dict(source,exported_checkpoint_sha256=checkpoint_fingerprint(target)['checkpoint_sha256'],model_path=str(target.resolve()),export_bytes=actual_bytes,merged=True,passed=False,
+    report=dict(source,peak_allocated_bytes=torch.cuda.max_memory_allocated() if plan['device']=='cuda' else None,exported_checkpoint_sha256=checkpoint_fingerprint(target)['checkpoint_sha256'],model_path=str(target.resolve()),export_bytes=actual_bytes,merged=True,passed=False,
                 equivalence={'logits':'pending','generation':'pending','tool_behavior':'pending'})
     write_json(root/'merge_result.json',report)
     return report
 
 
-def merge(plan_path,out):
+def merge(plan_path,out,*,own_process_group=True):
     plan=json.loads(Path(plan_path).read_text())
     source=validate_merge_plan(plan)
     check_packages(plan)
@@ -97,7 +110,7 @@ def merge(plan_path,out):
     write_json(root/'merge_source.json',source)
     command=[sys.executable,'-m','officegym.training.merge','--worker-plan',str(frozen),'--sha256',hashlib.sha256(frozen.read_bytes()).hexdigest(),'--out',str(root)]
     with (root/'merge.stdout.log').open('w') as stdout,(root/'merge.stderr.log').open('w') as stderr:
-        status=execute_bounded(command,stdout,stderr,plan['max_wall_seconds'])
+        status=execute_bounded(command,stdout,stderr,plan['max_wall_seconds'],own_process_group=own_process_group)
     status['merge_completed']=status['exit_code']==0 and not status['wall_budget_exhausted'] and (root/'merge_result.json').is_file()
     status['equivalence_verified']=False
     write_json(root/'merge_process.json',status)

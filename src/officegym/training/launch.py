@@ -79,8 +79,12 @@ def validate_launch(config,smoke=False):
     return command
 
 
-def execute_bounded(command,stdout,stderr,max_wall_seconds):
-    process = subprocess.Popen(command,stdout=stdout,stderr=stderr,start_new_session=True)
+def execute_bounded(command,stdout,stderr,max_wall_seconds,*,own_process_group=True):
+    if type(own_process_group) is not bool:raise ValueError('explicit process group ownership required')
+    process = subprocess.Popen(command,stdout=stdout,stderr=stderr,start_new_session=own_process_group)
+    def send(signal_number):
+        if own_process_group:os.killpg(process.pid,signal_number)
+        else:process.send_signal(signal_number)
     exhausted = False
     try:
         process.wait(timeout=max_wall_seconds)
@@ -89,7 +93,7 @@ def execute_bounded(command,stdout,stderr,max_wall_seconds):
     finally:
         # Also clean workers that outlive a normally exited launcher.
         try:
-            os.killpg(process.pid,signal.SIGTERM)
+            send(signal.SIGTERM)
         except ProcessLookupError:
             pass
         try:
@@ -97,11 +101,11 @@ def execute_bounded(command,stdout,stderr,max_wall_seconds):
         except subprocess.TimeoutExpired:
             pass
         try:
-            os.killpg(process.pid,signal.SIGKILL)
+            send(signal.SIGKILL)
         except ProcessLookupError:
             pass
         process.wait()
-    return {'exit_code':process.returncode,'wall_budget_exhausted':exhausted,'process_group_cleanup':True}
+    return {'exit_code':process.returncode,'wall_budget_exhausted':exhausted,'process_group_cleanup':own_process_group,'inherited_outer_process_group':not own_process_group}
 
 
 def launch(config_path,out,smoke=False):

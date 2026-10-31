@@ -96,3 +96,7 @@ PYTHONPATH=src .venv-serve/bin/python -m officegym.eval.model_probe --fetch-root
 ChatPolicy 默认 `tool_choice=auto`，使用模型原生工具格式；配置可显式选择 `required` 作诊断，选择会记录在结果与 provenance 中。原生对照探针 artifacts/vllm_native_auto_probe_v1 已消除此前的反复读板模式，T01–T03 执行 10/10/8 个工具后声明完成，独立评分仍为 0/3。30 次响应的 token 计数均一致；其中两次纯文本响应经有限重试恢复。离线审计命令：`PYTHONPATH=src .venv/bin/python -m officegym.eval.protocol_audit --runs RUN_DIRECTORY --out NEW_AUDIT.json`；严格单工具审计不会把这种可恢复的纯文本响应算成通过。
 
 真实训练后端探针：`PYTHONPATH=src .venv-train/bin/python -m officegym.training.backend_probe --fetch-root artifacts/qwen3_4b_base_cdbee75_v1 --out artifacts/NEW_BACKEND_PROBE`。有效依赖锁见 requirements-training.lock；当前 .venv-train 通过显式 .pth 复用服务环境，仅覆盖冲突的训练依赖。探针使用清楚标注的手写协议样本，真实完成两次 TRL/PEFT LoRA 更新，并核对 assistant-only loss、非零有限梯度、参数变化与原始文件哈希；不产生教师数据或正式 SFT baseline。v1 实测 wall 38.79s、峰值分配约 12.60 GiB；16 样本过拟合、任务效果与导出等价仍待完成。
+
+真实合并／数值探针：`PYTHONPATH=src .venv-train/bin/python -m officegym.training.export_probe --profile fp32 --fetch-root artifacts/qwen3_4b_base_cdbee75_v1 --backend artifacts/real_optimizer_backend_probe_v1 --out artifacts/NEW_EXPORT_PROBE`。它只使用已标注的后端 checkpoint，不能登记为正式 SFT 导出。BF16 对照已发现：两项生成完全一致，但最大 logit 差异 0.4375/0.375 超过预设 0.25，故保留为未通过。FP32 是独立精度配置，容差预设为 1e-4；完整验收还需要任务级工具等价。
+
+独立 FP32 v1 实测也未通过其预设容差：两项生成完全一致，但最大 logit 差异约 1.50e-4/1.38e-4，高于 1e-4。完整资源测量已完成（203.53s、观察峰值 22,540 MiB），数值／工具等价门禁仍关闭；命令在数值拒绝时返回非零退出码并保留全部证据。

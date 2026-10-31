@@ -24,7 +24,7 @@ class MergeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);plan=self.fixture(root)
             self.assertEqual(validate_merge_plan(plan)['training_source']['optimizer_step'],5)
-            for patch in ({'max_wall_seconds':float('inf')},{'max_export_bytes':0},{'max_shard_size_bytes':20000},{'base_model_path':'remote/model'},{'optimizer_step':6}):
+            for patch in ({'device':'cuda'},{'device':'cuda','max_allocated_bytes':True},{'device':'cuda','max_allocated_bytes':0},{'max_wall_seconds':float('inf')},{'max_export_bytes':0},{'max_shard_size_bytes':20000},{'base_model_path':'remote/model'},{'optimizer_step':6}):
                 with self.subTest(patch=patch),self.assertRaises(ValueError):
                     validate_merge_plan({**plan,**patch})
             (Path(plan['base_model_path'])/'model.safetensors').write_bytes(b'changed')
