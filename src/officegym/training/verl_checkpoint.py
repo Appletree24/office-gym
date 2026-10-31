@@ -155,6 +155,8 @@ def observed_tracking_class(base,maximum,evidence):
 
 
 def run_task(instance,config):
+    from .launch import validate_policy_profile
+    validate_policy_profile(config)
     root,_=validate_profile(config);checkout=Path(config.trainer.officegym_verl_checkout).resolve();hashes=verify_sources(checkout)
     import verl.trainer.main_ppo_v0 as upstream
     import verl.utils.tracking as tracking
@@ -178,6 +180,8 @@ def run_task(instance,config):
 
 def run_upstream(config):
     """Keep upstream validation/run_ppo, substituting only its legacy controller."""
+    from .launch import validate_policy_profile
+    validate_policy_profile(config)
     validate_profile(config);checkout=Path(config.trainer.officegym_verl_checkout).resolve();verify_sources(checkout)
     import ray
     import verl.trainer.main_ppo as main

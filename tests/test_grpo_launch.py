@@ -53,13 +53,21 @@ class LaunchTests(unittest.TestCase):
             resolved['trainer'].update(profile['trainer'])
             resolved['trainer']['officegym_starting_actor_hash']=config['starting_checkpoint_hash']
             resolved['actor_rollout_ref']['actor']=profile['actor_rollout_ref']['actor']
-            resolved['actor_rollout_ref']['model']={'path':str(checkpoint)}
+            resolved['actor_rollout_ref']['model']={'path':str(checkpoint),'lora_rank':16,'lora_alpha':32}
+            resolved['actor_rollout_ref']['actor'].update(use_kl_loss=True,kl_loss_coef=.001)
+            resolved['actor_rollout_ref']['rollout'].update(name='vllm',load_format='auto')
             resolved['data'] = dict(train_files=[str(train)],train_batch_size=2)
             resolved['actor_rollout_ref']['rollout'].update(agent={'agent_loop_config_path':plugins['agent_loop']['path']},multi_turn={'tool_config_path':plugins['tools']['path']})
             upstream.write_text(json.dumps(resolved))
             config['resolved_upstream_sha256'] = hashlib.sha256(upstream.read_bytes()).hexdigest()
             config['command'] = bound_command(upstream,config['resolved_upstream_sha256'])
             self.assertEqual(validate_launch(config,smoke=True),config['command'])
+            resolved['actor_rollout_ref']['actor']['use_kl_loss']=False
+            upstream.write_text(json.dumps(resolved));config['resolved_upstream_sha256']=hashlib.sha256(upstream.read_bytes()).hexdigest()
+            config['command']=bound_command(upstream,config['resolved_upstream_sha256'])
+            with self.assertRaisesRegex(ValueError,'reference KL'):
+                validate_launch(config,smoke=True)
+            resolved['actor_rollout_ref']['actor']['use_kl_loss']=True
             resolved['actor_rollout_ref']['model']['path']='/another/model'
             upstream.write_text(json.dumps(resolved));config['resolved_upstream_sha256']=hashlib.sha256(upstream.read_bytes()).hexdigest()
             config['command']=bound_command(upstream,config['resolved_upstream_sha256'])

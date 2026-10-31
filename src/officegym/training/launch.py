@@ -1,4 +1,5 @@
 """Launch only an explicitly resolved and compatibility-tested upstream command."""
+from collections.abc import Mapping
 import hashlib
 import importlib.metadata
 import json
@@ -23,6 +24,33 @@ def compatibility_hash(resolved):
     compatible = json.loads(canonical(resolved))
     compatible.get('trainer',{}).pop('total_training_steps',None)
     return hashlib.sha256(canonical(compatible).encode()).hexdigest()
+
+
+
+def validate_policy_profile(resolved):
+    """Bind fresh RL LoRA and disabled-adapter SFT reference to native semantics."""
+    try:
+        section=resolved['actor_rollout_ref'];model=section['model'];actor=section['actor'];rollout=section['rollout']
+    except KeyError as exc:raise ValueError('complete native policy profile required') from exc
+    rank=model.get('lora_rank');alpha=model.get('lora_alpha');lora=model.get('lora',{})
+    if not isinstance(lora,Mapping):raise ValueError('native LoRA configuration must be a mapping')
+    if type(rank) is not int or rank<1 or type(alpha) is not int or alpha<1:
+        raise ValueError('explicit positive FSDP LoRA rank/alpha required')
+    # The task runner/vLLM prefer nested rank, while FSDP builds from lora_rank.
+    nested_rank=lora.get('rank',0)
+    if type(nested_rank) is not int or nested_rank<0 or nested_rank not in (0,rank):
+        raise ValueError('nested and FSDP LoRA ranks disagree')
+    if lora.get('merge',False) is not False or model.get('lora_adapter_path') is not None:
+        raise ValueError('fresh unmerged RL adapter over the admitted merged SFT base required')
+    coefficient=actor.get('kl_loss_coef')
+    if actor.get('use_kl_loss') is not True or type(coefficient) not in (int,float) or not math.isfinite(coefficient) or coefficient<=0:
+        raise ValueError('explicit positive fixed-SFT reference KL loss required')
+    if resolved.get('algorithm',{}).get('use_kl_in_reward',False) is not False:
+        raise ValueError('KL must use the actor loss only, without reward shaping')
+    if rollout.get('name')!='vllm' or rollout.get('load_format') not in ('auto','safetensors'):
+        raise ValueError('native vLLM must preload the admitted SFT base before adapter transfer')
+    if actor.get('strategy')=='fsdp2' and rollout.get('layered_summon') is not True:
+        raise ValueError('native FSDP2 adapter transfer requires layered_summon=True')
 
 
 def validate_launch(config,smoke=False):
@@ -66,6 +94,7 @@ def validate_launch(config,smoke=False):
     required_values = {'algorithm.adv_estimator':'grpo','actor_rollout_ref.rollout.n':config['group_size'],'trainer.total_training_steps':config['max_updates'],'actor_rollout_ref.model.path':str(Path(config['starting_checkpoint_path']).resolve()),'trainer.officegym_starting_actor_hash':config['starting_checkpoint_hash']}
     if any(values.get(key)!=value for key,value in required_values.items()):
         raise ValueError('resolved upstream algorithm/group/update budget mismatch')
+    validate_policy_profile(resolved)
     preparation = json.loads(Path(config['prepared_rollouts']).read_text())
     train_file = validate_preparation(preparation,config['rollout_contract'])
     validate_plugins(preparation.get('worker_plugins',{}),values)

@@ -49,5 +49,20 @@
     "checkpoint_directory": "EVIDENCE_ROOT/checkpoints",
     "verl_checkout": "ABSOLUTE_PINNED_VERL_CHECKOUT",
     "source_lock": "officegym/training/verl_checkpoint_sources.json"
+  },
+  "native_policy_contract": {
+    "reference_mode": "disable_fresh_RL_adapter_over_admitted_merged_SFT_base",
+    "actor_rollout_ref.model.lora_rank": 16,
+    "actor_rollout_ref.model.lora_alpha": 32,
+    "actor_rollout_ref.model.lora_adapter_path": null,
+    "actor_rollout_ref.model.lora.merge": false,
+    "actor_rollout_ref.actor.use_kl_loss": true,
+    "actor_rollout_ref.actor.kl_loss_coef": 0.001,
+    "algorithm.use_kl_in_reward": false,
+    "actor_rollout_ref.rollout.name": "vllm",
+    "actor_rollout_ref.rollout.load_format": "auto",
+    "actor_rollout_ref.rollout.layered_summon": true,
+    "nested_lora_rank": "absent_or_zero_or_equal_to_model_lora_rank",
+    "validation": "launch_and_native_driver_and_ray_task_before_worker_creation"
   }
 }
