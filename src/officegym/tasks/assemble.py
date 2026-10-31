@@ -33,7 +33,7 @@ def assemble(config_path,out):
     add('unseen',templates=('U01','U02','U03','U04'),count_per_template=counts['unseen_test']//4,split='unseen_test')
     validate_unique(entries)
     manifest = dict(status='development_dataset_not_frozen',task_generator_version='generator-v1-development',instances=entries,heldout_signatures=HELDOUT_SIGNATURES,
-                    limitations=['Combo split currently uses one template/depth condition; five-cell combo stratification remains outstanding.',
+                    limitations=['Combo split uses one template and two perturbations: its held-out signature requires two events, so P0/P1 cells are inapplicable; interpret only within this composition.',
                                  'ID scan currently uses T04 composition only; interpret within this composition.',
                                  'Depth dependence requires additional skip-stage adversarial audit before freezing.'])
     (root/'manifest.json').write_text(canonical(manifest)+'\n')

@@ -88,7 +88,9 @@ def generate(out,templates=TRAIN_TEMPLATES,count_per_template=3,seed=None,split=
             if refs:
                 public['required_document_refs'] = refs
                 nodes.insert(1,'read_material')
-            if template=='D02' or heldout_combo:
+            if template in ('T05','D02') or heldout_combo:
+                if template=='T05':
+                    public['monitor_until'] = base+3000
                 public['track_document_ids'] = ['agenda']
                 scheduled.append(dict(id='material_update',due_at=base+2200,kind='DocumentVersionPublished',payload={'document_id':'agenda','expected_version':1,'content':'Updated material '+str(number)}))
             if depth_level is not None:

@@ -16,6 +16,7 @@ def validate_dataset(manifest_path):
     if not entries:
         raise ValueError('empty dataset')
     validate_unique(entries)
+    atoms = {'train':set(),'combo_test':set()}
     splits,templates = Counter(),set()
     for entry in entries:
         directory = (path.parent/entry['path']).resolve()
@@ -32,11 +33,13 @@ def validate_dataset(manifest_path):
         task = json.loads((directory/'task.json').read_text())
         if task.get('example_only') or any(task[key]!=entry[key] for key in ('instance_id','split','template_id','scenario_family_id','depth_level','perturbation_level')):
             raise ValueError('task identity mismatch or example fixture')
-        if entry['split']=='train':
+        if entry['split'] in atoms:
             rules = json.loads((directory/'event_rules.json').read_text())
             scheduled = rules.get('scheduled_events',[])
             signature = [event['kind'] for event in sorted(scheduled,key=lambda event:(event['due_at'],event['id']))]
-            check_holdout(signature,manifest.get('heldout_signatures',[['AttendeeChanged','DocumentVersionPublished']]))
+            atoms[entry['split']].update(signature)
+            if entry['split']=='train':
+                check_holdout(signature,manifest.get('heldout_signatures',[['AttendeeChanged','DocumentVersionPublished']]))
         dag = task['dependency_dag']
         depth = dependency_depth(dag['nodes'],dag['edges'])
         if depth != task['dependency_path_length']:
@@ -62,5 +65,7 @@ def validate_dataset(manifest_path):
             db.close()
         splits[entry['split']] += 1
         templates.add(entry['template_id'])
+    if splits.get('train') and splits.get('combo_test') and atoms['combo_test']-atoms['train']:
+        raise ValueError('combo contains event atoms absent from training: '+','.join(sorted(atoms['combo_test']-atoms['train'])))
     return {'instances':len(entries),'templates':len(templates),'splits':dict(splits),'exact_duplicates':0,
             'scope':'artifact_integrity_not_full_semantic_or_model_validation'}

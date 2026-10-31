@@ -21,7 +21,12 @@ def report(manifest_path,out):
         scenario_splits[entry['scenario_family_id']].add(entry['split'])
         fingerprint_splits[entry['family_fingerprint']].add(entry['split'])
         family_sizes[(entry['split'],entry['scenario_family_id'])] += 1
-    result = dict(validation=validation,status=manifest.get('status'),limitations=manifest.get('limitations',[]),
+    train_atoms = {kind for (split,signature),count in signatures.items() if split=='train' for kind in signature}
+    combo_atoms = {kind for (split,signature),count in signatures.items() if split=='combo_test' for kind in signature}
+    combo_atom_coverage = dict(train_event_kinds=sorted(train_atoms),combo_event_kinds=sorted(combo_atoms),
+                               missing_training_event_kinds=sorted(combo_atoms-train_atoms),
+                               all_combo_atoms_seen_in_training=not bool(combo_atoms-train_atoms))
+    result = dict(combo_atom_coverage=combo_atom_coverage,validation=validation,status=manifest.get('status'),limitations=manifest.get('limitations',[]),
                   condition_cells=[dict(split=split,depth=depth,perturbation=perturbation,count=count) for (split,depth,perturbation),count in sorted(cells.items())],
                   templates=[dict(split=split,template_id=template,count=count) for (split,template),count in sorted(templates.items())],
                   event_signatures=[dict(split=split,signature=list(signature),count=count) for (split,signature),count in sorted(signatures.items())],
