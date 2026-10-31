@@ -10,9 +10,17 @@ import time
 from pathlib import Path
 from officegym.env.world import canonical
 from .rollout_contract import validate_rollout_contract
+from .verl_entry import bound_command,load_resolved
 
 VERL_COMMIT = '8df5baeed0f5ecdd7f870d83bc3d79194816e2a9'
 SMOKE_CHECKS = {'isolated_worlds','native_token_ids','tool_loss_mask_zero','initial_actor_reference_kl','parameter_update','actor_version_sync','checkpoint_export_evaluation'}
+
+
+def compatibility_hash(resolved):
+    # The sole permitted smoke-to-training change is the number of updates.
+    compatible = json.loads(canonical(resolved))
+    compatible.get('trainer',{}).pop('total_training_steps',None)
+    return hashlib.sha256(canonical(compatible).encode()).hexdigest()
 
 
 def validate_launch(config,smoke=False):
@@ -39,14 +47,7 @@ def validate_launch(config,smoke=False):
     upstream = Path(config['resolved_upstream_config'])
     if not upstream.is_file() or hashlib.sha256(upstream.read_bytes()).hexdigest()!=config['resolved_upstream_sha256']:
         raise ValueError('resolved upstream configuration hash mismatch')
-    text = upstream.read_text()
-    try:
-        resolved = json.loads(text)
-    except json.JSONDecodeError:
-        import yaml
-        resolved = yaml.safe_load(text)
-    if not isinstance(resolved,dict):
-        raise ValueError('resolved upstream config must be a mapping')
+    resolved = load_resolved(upstream,config['resolved_upstream_sha256'])
     values = {}
     def flatten(mapping,prefix=''):
         for key,value in mapping.items():
@@ -72,8 +73,10 @@ def validate_launch(config,smoke=False):
         report = json.loads(Path(config['smoke_report']).read_text())
         if report.get('passed') is not True or not SMOKE_CHECKS <= set(report.get('passed_checks',[])):
             raise ValueError('complete rollout/update/export smoke evidence required')
-        if report.get('resolved_upstream_sha256')!=config['resolved_upstream_sha256']:
-            raise ValueError('training config differs from verified smoke config')
+        if report.get('compatibility_sha256')!=compatibility_hash(resolved):
+            raise ValueError('training parameters differ from verified smoke config')
+    if command!=bound_command(upstream,config['resolved_upstream_sha256']):
+        raise ValueError('command must execute the exact hashed upstream configuration')
     return command
 
 
@@ -114,10 +117,12 @@ def launch(config_path,out,smoke=False):
     root = Path(out)
     root.mkdir(parents=True,exist_ok=False)
     (root/'launch_config.json').write_text(canonical(config)+'\n')
+    resolved = load_resolved(config['resolved_upstream_config'],config['resolved_upstream_sha256'])
+    (root/'resolved_upstream.json').write_text(canonical(resolved)+'\n')
     started = time.monotonic()
     with (root/'upstream.stdout.log').open('w') as stdout, (root/'upstream.stderr.log').open('w') as stderr:
         status = execute_bounded(command,stdout,stderr,config['max_wall_seconds'])
-    status.update(wall_seconds=time.monotonic()-started,smoke=smoke,semantic_smoke_verification='pending')
+    status.update(compatibility_sha256=compatibility_hash(resolved),resolved_upstream_sha256=config['resolved_upstream_sha256'],wall_seconds=time.monotonic()-started,smoke=smoke,semantic_smoke_verification='pending')
     (root/'launch_result.json').write_text(canonical(status)+'\n')
     return status
 

@@ -1,5 +1,6 @@
 import unittest
-from officegym.training.launch import validate_launch
+from officegym.training.launch import validate_launch,compatibility_hash
+from officegym.training.verl_entry import bound_command,load_resolved
 
 
 class LaunchTests(unittest.TestCase):
@@ -40,7 +41,27 @@ class LaunchTests(unittest.TestCase):
             resolved['data'] = dict(train_files=[str(train)])
             upstream.write_text(json.dumps(resolved))
             config['resolved_upstream_sha256'] = hashlib.sha256(upstream.read_bytes()).hexdigest()
+            config['command'] = bound_command(upstream,config['resolved_upstream_sha256'])
             self.assertEqual(validate_launch(config,smoke=True),config['command'])
+            config['command'] = ['python','another_entrypoint.py']
+            with self.assertRaisesRegex(ValueError,'command must execute'):
+                validate_launch(config,smoke=True)
+            config['command'] = bound_command(upstream,config['resolved_upstream_sha256'])
+            from officegym.training.launch import SMOKE_CHECKS
+            report = Path(directory)/'smoke.json'
+            report.write_text(json.dumps(dict(passed=True,passed_checks=sorted(SMOKE_CHECKS),compatibility_sha256=compatibility_hash(resolved))))
+            config['smoke_report'] = str(report)
+            config['max_updates'] = 100
+            resolved['trainer']['total_training_steps'] = 100
+            upstream.write_text(json.dumps(resolved))
+            config['resolved_upstream_sha256'] = hashlib.sha256(upstream.read_bytes()).hexdigest()
+            config['command'] = bound_command(upstream,config['resolved_upstream_sha256'])
+            self.assertEqual(validate_launch(config,smoke=False),config['command'])
+            config['max_updates'] = 5
+            resolved['trainer']['total_training_steps'] = 5
+            upstream.write_text(json.dumps(resolved))
+            config['resolved_upstream_sha256'] = hashlib.sha256(upstream.read_bytes()).hexdigest()
+            config['command'] = bound_command(upstream,config['resolved_upstream_sha256'])
             train.write_text('{"tampered":true}\n')
             with self.assertRaisesRegex(ValueError,'data hash mismatch'):
                 validate_launch(config,smoke=True)
@@ -53,3 +74,23 @@ class LaunchTests(unittest.TestCase):
             config['group_size'] = 2
             with self.assertRaisesRegex(ValueError,'algorithm/group/update'):
                 validate_launch(config,smoke=True)
+
+    def test_smoke_compatibility_allows_only_update_count_change(self):
+        smoke={'trainer':{'total_training_steps':5},'algorithm':{'adv_estimator':'grpo'},'actor':{'learning_rate':0.000001}}
+        training={**smoke,'trainer':{'total_training_steps':100}}
+        self.assertEqual(compatibility_hash(smoke),compatibility_hash(training))
+        changed={**training,'actor':{'learning_rate':0.00001}}
+        self.assertNotEqual(compatibility_hash(smoke),compatibility_hash(changed))
+
+    def test_bound_loader_rejects_changed_bytes_and_unresolved_config(self):
+        import tempfile,json,hashlib
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'config.json'
+            path.write_text(json.dumps({'model':'${unresolved}'}))
+            checksum=hashlib.sha256(path.read_bytes()).hexdigest()
+            with self.assertRaisesRegex(ValueError,'resolved interpolations'):
+                load_resolved(path,checksum)
+            path.write_text('{}')
+            with self.assertRaisesRegex(ValueError,'changed before execution'):
+                load_resolved(path,checksum)
