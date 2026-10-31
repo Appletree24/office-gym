@@ -139,7 +139,8 @@ def launch(config_path,out,smoke=False):
         admit_training(TrainingEvidence(root),stage='grpo',data_manifest=config['prepared_rollouts'],config=root/'launch_config.json')
     started = time.monotonic()
     with (root/'upstream.stdout.log').open('w') as stdout, (root/'upstream.stderr.log').open('w') as stderr:
-        status = execute_bounded(command,stdout,stderr,config['max_wall_seconds'])
+        from .process_tree import execute_tree_bounded
+        status = execute_tree_bounded(command,stdout,stderr,config['max_wall_seconds'],evidence_dir=root/'process_ownership')
     status.update(compatibility_sha256=compatibility_hash(resolved),resolved_upstream_sha256=config['resolved_upstream_sha256'],wall_seconds=time.monotonic()-started,smoke=smoke,semantic_smoke_verification='pending')
     (root/'launch_result.json').write_text(canonical(status)+'\n')
     return status
