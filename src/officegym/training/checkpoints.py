@@ -102,7 +102,11 @@ def bind_formal_training_source(events_path,checkpoint,optimizer_step,stage,pare
     source=bind_training_source(events_path,checkpoint,optimizer_step)
     if stage=='grpo':
         verify_grpo_source_lock(events_path,source['prefix_bytes'])
-        verify_grpo_updates(events_path,source['prefix_bytes'],optimizer_step)
+        plan=json.loads(Path(payload['config']['path']).read_text())
+        from .verl_entry import load_resolved
+        resolved=load_resolved(plan['resolved_upstream_config'],plan['resolved_upstream_sha256'])
+        expected_rows=resolved['data']['train_batch_size']*resolved['actor_rollout_ref']['rollout']['n']
+        verify_grpo_updates(events_path,source['prefix_bytes'],optimizer_step,initial_actor=parent_hash,expected_rows=expected_rows)
     if not Path(checkpoint).resolve().is_relative_to(Path(events_path).resolve().parent):raise ValueError('formal checkpoint escapes admitted training run')
     return dict(source,admission=payload)
 
@@ -116,14 +120,43 @@ def verify_grpo_source_lock(events_path,prefix_bytes):
     return dict(SOURCE_HASHES)
 
 
-def verify_grpo_updates(events_path,prefix_bytes,optimizer_step):
+def verify_grpo_updates(events_path,prefix_bytes,optimizer_step,*,initial_actor=None,expected_rows=None):
     from math import isfinite
-    prefix=Path(events_path).read_bytes()[:prefix_bytes]
-    updates=[row for row in map(json.loads,prefix.splitlines()) if row.get('kind')=='optimizer_update']
+    from .actor_version import actor_identity
+    raw=Path(events_path).read_bytes()
+    if type(prefix_bytes) is not int or not 0<prefix_bytes<=len(raw) or type(optimizer_step) is not int or optimizer_step<1:
+        raise ValueError('bounded positive GRPO evidence prefix/step required')
+    records=list(map(json.loads,raw[:prefix_bytes].splitlines()))
+    updates=[row for row in records if row.get('kind')=='optimizer_update']
     if [r['optimizer_step'] for r in updates]!=list(range(1,optimizer_step+1)):raise ValueError('GRPO source lacks complete optimizer-update evidence')
-    for row in updates:
-        proof=row['payload'];norms=proof.get('gradient_norms')
-        if proof.get('native_global_step')!=row['optimizer_step'] or proof.get('contract')!='single-mini-batch-epoch' or not isinstance(norms,list) or not norms or any(type(v) not in (int,float) or not isfinite(v) or v<0 for v in norms):raise ValueError('invalid GRPO optimizer-update evidence')
+    if initial_actor is None:initial_actor=updates[0].get('payload',{}).get('sampled_actor_version')
+    if not isinstance(initial_actor,str) or not initial_actor:raise ValueError('admitted initial actor identity required')
+    fields=('selected_trajectories','actor_loss_tokens','forward_context_tokens','selected_generated_tokens','context_only_tokens')
+    pending=None;completed=0
+    def usage(proof):
+        if any(type(proof.get(key)) is not int or proof[key]<0 for key in fields):raise ValueError('GRPO update lacks integer training-token evidence')
+        if proof['selected_trajectories']<1 or proof['actor_loss_tokens']<1 or proof['selected_generated_tokens']!=proof['actor_loss_tokens'] or proof['forward_context_tokens']!=proof['actor_loss_tokens']+proof['context_only_tokens']:
+            raise ValueError('inconsistent GRPO training-token accounting')
+        if expected_rows is not None and proof['selected_trajectories']!=expected_rows:raise ValueError('GRPO selected rows differ from admission')
+        return tuple(proof[key] for key in fields)
+    for row in records:
+        if row.get('kind') not in ('optimizer_update_attempt','optimizer_update'):continue
+        step=row.get('optimizer_step');proof=row.get('payload',{})
+        if type(step) is not int or step!=completed+1 or proof.get('native_global_step')!=step or type(proof.get('native_global_step')) is not int:
+            raise ValueError('GRPO update attempt/order differs from verified prefix')
+        counts=usage(proof)
+        if row['kind']=='optimizer_update_attempt':
+            if pending is not None:raise ValueError('duplicate or unresolved GRPO optimizer attempt')
+            pending=counts;continue
+        if pending is None or counts!=pending:raise ValueError('GRPO update lacks its matching attempted batch')
+        norms=proof.get('gradient_norms')
+        if proof.get('contract')!='single-mini-batch-epoch' or not isinstance(norms,list) or not norms or any(type(v) not in (int,float) or not isfinite(v) or v<0 for v in norms):raise ValueError('invalid GRPO optimizer-update evidence')
+        metrics=proof.get('native_actor_metrics',{});kl=metrics.get('actor/kl_loss') if isinstance(metrics,dict) else None
+        if type(kl) not in (int,float) or not isfinite(kl):raise ValueError('GRPO update lacks finite native reference KL')
+        if type(proof.get('sampled_actor_step')) is not int or proof['sampled_actor_step']!=step-1 or proof.get('sampled_actor_version')!=actor_identity(initial_actor,step-1) or proof.get('per_generation_version_checks') is not True:
+            raise ValueError('GRPO update lacks admitted sampled actor identity')
+        pending=None;completed+=1
+    if pending is not None or completed!=optimizer_step:raise ValueError('unresolved optimizer attempt before source checkpoint')
     return optimizer_step
 
 

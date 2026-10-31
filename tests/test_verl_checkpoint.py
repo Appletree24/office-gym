@@ -118,7 +118,12 @@ class VerlCheckpointTests(unittest.TestCase):
         from officegym.training.checkpoints import verify_grpo_updates
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'events.jsonl'
-            rows=[dict(kind='optimizer_update',optimizer_step=step,payload=dict(native_global_step=step,contract='single-mini-batch-epoch',gradient_norms=[.5])) for step in (1,2)]
+            from officegym.training.actor_version import actor_identity
+            counts=dict(selected_trajectories=2,actor_loss_tokens=4,forward_context_tokens=10,selected_generated_tokens=4,context_only_tokens=6)
+            rows=[]
+            for step in (1,2):
+                rows.append(dict(kind='optimizer_update_attempt',optimizer_step=step,payload=dict(native_global_step=step,**counts)))
+                rows.append(dict(kind='optimizer_update',optimizer_step=step,payload=dict(native_global_step=step,contract='single-mini-batch-epoch',gradient_norms=[.5],native_actor_metrics={'actor/kl_loss':.001},sampled_actor_step=step-1,sampled_actor_version=actor_identity('fixture-sft',step-1),per_generation_version_checks=True,**counts)))
             for data in (rows[:1],list(reversed(rows)),[dict(rows[0],payload=dict(rows[0]['payload'],gradient_norms=[float('nan')])),rows[1]]):
                 path.write_text(''.join(json.dumps(row)+'\n' for row in data))
                 with self.assertRaises(ValueError):verify_grpo_updates(path,path.stat().st_size,2)
