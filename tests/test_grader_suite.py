@@ -22,3 +22,19 @@ class SuiteTests(unittest.TestCase):
             self.assertIsNone(report['legal_false_positive_rate'])
             self.assertEqual(report['label_mismatches'],0)
             self.assertTrue((root/'report'/'cases.jsonl').is_file())
+
+    def test_exported_boundary_deletion_and_retry_cases(self):
+        from officegym.graders.cases import generate_cases
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            self.assertEqual(generate_cases(root/'cases'),19)
+            report=run_suite(root/'cases',root/'report')
+            self.assertEqual(report['cases'],19)
+            self.assertEqual(report['label_mismatches'],0)
+            rows=[json.loads(line) for line in (root/'report/cases.jsonl').read_text().splitlines()]
+            for row in rows:
+                if row['case_id'].startswith('deleted_wrong_send_'):
+                    self.assertTrue(row['grade']['outcome_ok'])
+                    self.assertIn('operation_evidence_inconsistent',row['grade']['hard_violations'])
+                    trace=(root/'cases'/row['case_id']/'actions.jsonl').read_text()
+                    self.assertIn('offline_snapshot_mutation',trace)

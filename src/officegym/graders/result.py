@@ -5,6 +5,7 @@ import sqlite3
 from pathlib import Path
 from .replies import availability_replies
 from .creation_scope import unexpected_creations
+from .operations import reconcile
 
 
 def evaluate(world_path, spec, initial_path=None):
@@ -12,6 +13,8 @@ def evaluate(world_path, spec, initial_path=None):
     db.row_factory = sqlite3.Row
     failures, severe = [], []
     try:
+        if not reconcile(world_path)['consistent']:
+            severe.append('operation_evidence_inconsistent')
         meetings = db.execute('SELECT * FROM meetings WHERE organizer_id=?', (spec['principal_id'],)).fetchall()
         invitations = db.execute("SELECT o.*,m.sent_at FROM outbox o JOIN messages m ON m.id=o.message_id WHERE o.kind IN ('invitation','reschedule') ORDER BY o.id").fetchall()
         required = set(spec['required_participant_ids'])
