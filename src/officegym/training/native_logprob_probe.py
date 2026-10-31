@@ -13,7 +13,7 @@ import sys
 from officegym.eval.artifacts import write_json
 
 
-async def worker(fetch_root,batch_root,out):
+async def worker(fetch_root,batch_root,out,backward=False):
     import torch
     from verl import DataProto
     from verl.workers.config.model import HFModelConfig
@@ -39,6 +39,7 @@ async def worker(fetch_root,batch_root,out):
         if not check_file(source/'model'/item['name'],item):raise ValueError('pretrained model bytes changed')
     prior=json.loads((batch_root/'report.json').read_text())
     if not prior.get('passed_native_protocol') or not prior.get('default_agentloop_manager_used'):raise ValueError('actual native manager batch required')
+    if backward and (prior.get('effective_groups')!=0 or [row['reward'] for row in prior['rollouts']]!=[0.,0.]):raise ValueError('zero-reward source required for backward diagnostic')
     arrays=json.loads((batch_root/'native_batch_tensors.json').read_text())
     if len(arrays['input_ids'])!=2:raise ValueError('bounded two-row native logprob probe required')
     tensor_names=('input_ids','prompts','responses','attention_mask','response_mask','position_ids')
@@ -116,13 +117,46 @@ async def worker(fetch_root,batch_root,out):
         restored=infer()
         if not torch.equal(restored,actor) or fingerprint()!=initial_hash:raise ValueError('adapter restoration changed initial policy')
         if any(param.grad is not None for param in engine.module.parameters()):raise ValueError('inference unexpectedly produced gradients')
+        backward_checks=[]
+        if backward:
+            from functools import partial
+            from verl.workers.config.actor import ActorConfig
+            from verl.workers.utils.losses import ppo_loss
+            actor_config=ActorConfig(strategy='fsdp2',rollout_n=2,ppo_mini_batch_size=2,ppo_micro_batch_size_per_gpu=1,use_torch_compile=False,use_kl_loss=False,loss_agg_mode='token-mean')
+            for label,advantage in (('genuine_zero_reward_advantage',0.),('authored_positive_advantage_control',1.)):
+                training=data.clone()
+                training['old_log_probs']=actor.clone()
+                training['advantages']=torch.full_like(actor,advantage)
+                tu.assign_non_tensor(training,global_batch_size=2,return_model_output=False)
+                captured=[]
+                def loss_function(model_output,data,dp_group):
+                    def capture(gradient):
+                        captured.append(no_padding_2_padding(gradient,data).float().cpu())
+                    model_output['log_probs'].register_hook(capture)
+                    return ppo_loss(actor_config,model_output,data,dp_group)
+                engine.optimizer_zero_grad()
+                with engine.train_mode(zero_grad_on_exit=False):
+                    engine.forward_backward_batch(training,loss_function,forward_only=False)
+                gradients=[local(param.grad).detach().float().cpu() for param in adapters.values() if param.grad is not None]
+                if not gradients or any(not torch.isfinite(value).all() for value in gradients):raise ValueError('missing or nonfinite actual model gradients')
+                squared_norm=sum(float(value.double().square().sum()) for value in gradients)
+                if (advantage==0. and squared_norm!=0.) or (advantage!=0. and squared_norm<=0.):raise ValueError('actual native model gradient control failed')
+                token_grad=torch.cat(captured)
+                expected=-advantage*mask.float()/float(mask.sum())
+                error=float((token_grad-expected).abs().max())
+                if token_grad.shape!=mask.shape or torch.count_nonzero(token_grad[~mask]) or error>1e-5:raise ValueError('native PPO loss response gradient mask/normalization failed')
+                write_json(root/(label+'_response_gradients.json'),token_grad.tolist())
+                backward_checks.append(dict(label=label,authored_control=advantage!=0.,adapter_gradient_norm=squared_norm**.5,adapter_tensors_with_grad=len(gradients),maximum_response_gradient_analytic_error=error,non_actor_response_gradient_nonzero=0))
+            engine.optimizer_zero_grad()
+            if fingerprint()!=initial_hash:raise ValueError('backward-only diagnostic changed model weights')
+            write_json(root/'backward_checks.json',dict(passed=True,optimizer_updates=0,checks=backward_checks,actual_model_backward=True,formal_grpo=False,source_rewards=[0,0],source_effective_groups=0))
         write_json(root/'logprob_vectors.json',dict(actor=actor.tolist(),reference=reference.tolist(),perturbed_actor=changed.tolist(),fixed_reference=fixed_reference.tolist(),restored_actor=restored.tolist(),response_mask=tensors['response_mask'].tolist()))
-        write_json(root/'report.json',dict(passed=True,kind='native-fsdp2-initial-actor-base-reference-not-formal-grpo',native_adapter_exports=dict(initial=initial_export,perturbed=perturbed_export),physical_rollout_weight_sync_verified=False,native_engine_class=type(engine).__module__+'.'+type(engine).__name__,model_revision=plan['revision'],source_batch_sha256=hashlib.sha256((batch_root/'native_batch_tensors.json').read_bytes()).hexdigest(),recompute_temperature=1.,independent_causal_alignment_max_error=alignment_error,source_rows=2,unique_source_sequences=len({tuple(row) for row in arrays['input_ids']}),source_sampling_temperature=json.loads((batch_root/'worker_config_raw.json').read_text())['actor_rollout_ref']['rollout']['temperature'],cross_backend_logprob_equivalence_verified=False,actor_reference_sampled_logprob_difference_max=float(delta.abs().max()),actor_reference_recorded_action_logratio_mean=float(delta.mean()),negative_adapter_control_max_logprob_difference=change,reference_unchanged_under_adapter_perturbation=True,adapter_restored=True,adapter_tensor_count=len(adapters),initial_adapter_sha256=initial_hash,optimizer_updates=0,model_generations=0,teacher_samples=0,reference_is_admitted_sft=False,full_vocabulary_kl_computed=False,peak_cuda_allocated_bytes=torch.cuda.max_memory_allocated()))
+        write_json(root/'report.json',dict(passed=True,actual_model_backward_verified=backward,backward_checks=backward_checks,kind='native-fsdp2-initial-actor-base-reference-not-formal-grpo',native_adapter_exports=dict(initial=initial_export,perturbed=perturbed_export),physical_rollout_weight_sync_verified=False,native_engine_class=type(engine).__module__+'.'+type(engine).__name__,model_revision=plan['revision'],source_batch_sha256=hashlib.sha256((batch_root/'native_batch_tensors.json').read_bytes()).hexdigest(),recompute_temperature=1.,independent_causal_alignment_max_error=alignment_error,source_rows=2,unique_source_sequences=len({tuple(row) for row in arrays['input_ids']}),source_sampling_temperature=json.loads((batch_root/'worker_config_raw.json').read_text())['actor_rollout_ref']['rollout']['temperature'],cross_backend_logprob_equivalence_verified=False,actor_reference_sampled_logprob_difference_max=float(delta.abs().max()),actor_reference_recorded_action_logratio_mean=float(delta.mean()),negative_adapter_control_max_logprob_difference=change,reference_unchanged_under_adapter_perturbation=True,adapter_restored=True,adapter_tensor_count=len(adapters),initial_adapter_sha256=initial_hash,optimizer_updates=0,model_generations=0,teacher_samples=0,reference_is_admitted_sft=False,full_vocabulary_kl_computed=False,peak_cuda_allocated_bytes=torch.cuda.max_memory_allocated()))
     finally:
         torch.distributed.destroy_process_group()
 
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--fetch-root',required=True);parser.add_argument('--source-batch',required=True);parser.add_argument('--out',required=True);args=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--fetch-root',required=True);parser.add_argument('--source-batch',required=True);parser.add_argument('--out',required=True);parser.add_argument('--backward',action='store_true');args=parser.parse_args()
     from .native_inference_probe import run
-    print(json.dumps(run(args.fetch_root,args.source_batch,args.out,backend='native-logprob')))
+    print(json.dumps(run(args.fetch_root,args.source_batch,args.out,backend='native-gradient' if args.backward else 'native-logprob')))
