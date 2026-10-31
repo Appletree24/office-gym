@@ -13,7 +13,7 @@ import sys
 from officegym.eval.artifacts import write_json
 
 
-async def worker(fetch_root,batch_root,out,backward=False):
+async def worker(fetch_root,batch_root,out,backward=False,checkpoint_update=False,resume_root=None):
     import torch
     from verl import DataProto
     from verl.workers.config.model import HFModelConfig
@@ -54,7 +54,7 @@ async def worker(fetch_root,batch_root,out,backward=False):
     try:
         model=HFModelConfig(path=str(source/'model'),trust_remote_code=False,use_remove_padding=False,use_fused_kernels=False,lora_rank=16,lora_alpha=32,target_modules='all-linear',override_config={'attn_implementation':'sdpa'})
         config=FSDPEngineConfig(strategy='fsdp2',model_dtype='bf16',dtype='bfloat16',forward_only=False,use_remove_padding=False,use_fused_kernels=False,use_dynamic_bsz=False,micro_batch_size_per_gpu=1,infer_micro_batch_size_per_gpu=1,infer_max_token_len_per_gpu=8192,max_token_len_per_gpu=8192,use_torch_compile=False,param_offload=False,optimizer_offload=False)
-        engine=FSDPEngineWithLMHead(model,config,FSDPOptimizerConfig(lr=1e-6,total_training_steps=1,lr_warmup_steps=0,min_lr_ratio=0.),CheckpointConfig(save_lora_only=True))
+        engine=FSDPEngineWithLMHead(model,config,FSDPOptimizerConfig(lr=1e-6,total_training_steps=3 if checkpoint_update or resume_root else 1,lr_warmup_steps=0,min_lr_ratio=0.),CheckpointConfig(save_lora_only=True))
         engine.initialize()
         def local(param):return param.to_local() if hasattr(param,'to_local') else param
         adapters={name:param for name,param in engine.module.named_parameters() if param.requires_grad}
@@ -86,6 +86,10 @@ async def worker(fetch_root,batch_root,out,backward=False):
             padded=no_padding_2_padding(value,data).float().cpu()
             if not torch.isfinite(padded).all():raise ValueError('nonfinite native logprobs')
             return padded
+        if resume_root is not None:
+            from .native_engine_checkpoint_probe import reload_and_verify
+            reload_and_verify(engine,infer,root,resume_root)
+            return
         actor=infer();reference=infer(True)
         if not torch.equal(actor,reference):raise ValueError('initial native actor/reference logprobs differ')
         # Independent causal indexing: bypass native prepare/output and padding helpers.
@@ -117,7 +121,7 @@ async def worker(fetch_root,batch_root,out,backward=False):
         restored=infer()
         if not torch.equal(restored,actor) or fingerprint()!=initial_hash:raise ValueError('adapter restoration changed initial policy')
         if any(param.grad is not None for param in engine.module.parameters()):raise ValueError('inference unexpectedly produced gradients')
-        backward_checks=[]
+        backward_checks=[];checkpoint_result=None
         if backward:
             from functools import partial
             from verl.workers.config.actor import ActorConfig
@@ -147,11 +151,14 @@ async def worker(fetch_root,batch_root,out,backward=False):
                 if token_grad.shape!=mask.shape or torch.count_nonzero(token_grad[~mask]) or error>1e-5:raise ValueError('native PPO loss response gradient mask/normalization failed')
                 write_json(root/(label+'_response_gradients.json'),token_grad.tolist())
                 backward_checks.append(dict(label=label,authored_control=advantage!=0.,adapter_gradient_norm=squared_norm**.5,adapter_tensors_with_grad=len(gradients),maximum_response_gradient_analytic_error=error,non_actor_response_gradient_nonzero=0))
+            if checkpoint_update:
+                from .native_engine_checkpoint_probe import advance_and_save
+                checkpoint_result=advance_and_save(engine,infer,root)
             engine.optimizer_zero_grad()
-            if fingerprint()!=initial_hash:raise ValueError('backward-only diagnostic changed model weights')
-            write_json(root/'backward_checks.json',dict(passed=True,optimizer_updates=0,checks=backward_checks,actual_model_backward=True,formal_grpo=False,source_rewards=[0,0],source_effective_groups=0))
+            if not checkpoint_update and fingerprint()!=initial_hash:raise ValueError('backward-only diagnostic changed model weights')
+            write_json(root/'backward_checks.json',dict(passed=True,optimizer_updates=int(checkpoint_update),checks=backward_checks,actual_model_backward=True,formal_grpo=False,source_rewards=[0,0],source_effective_groups=0))
         write_json(root/'logprob_vectors.json',dict(actor=actor.tolist(),reference=reference.tolist(),perturbed_actor=changed.tolist(),fixed_reference=fixed_reference.tolist(),restored_actor=restored.tolist(),response_mask=tensors['response_mask'].tolist()))
-        write_json(root/'report.json',dict(passed=True,actual_model_backward_verified=backward,backward_checks=backward_checks,kind='native-fsdp2-initial-actor-base-reference-not-formal-grpo',native_adapter_exports=dict(initial=initial_export,perturbed=perturbed_export),physical_rollout_weight_sync_verified=False,native_engine_class=type(engine).__module__+'.'+type(engine).__name__,model_revision=plan['revision'],source_batch_sha256=hashlib.sha256((batch_root/'native_batch_tensors.json').read_bytes()).hexdigest(),recompute_temperature=1.,independent_causal_alignment_max_error=alignment_error,source_rows=2,unique_source_sequences=len({tuple(row) for row in arrays['input_ids']}),source_sampling_temperature=json.loads((batch_root/'worker_config_raw.json').read_text())['actor_rollout_ref']['rollout']['temperature'],cross_backend_logprob_equivalence_verified=False,actor_reference_sampled_logprob_difference_max=float(delta.abs().max()),actor_reference_recorded_action_logratio_mean=float(delta.mean()),negative_adapter_control_max_logprob_difference=change,reference_unchanged_under_adapter_perturbation=True,adapter_restored=True,adapter_tensor_count=len(adapters),initial_adapter_sha256=initial_hash,optimizer_updates=0,model_generations=0,teacher_samples=0,reference_is_admitted_sft=False,full_vocabulary_kl_computed=False,peak_cuda_allocated_bytes=torch.cuda.max_memory_allocated()))
+        write_json(root/'report.json',dict(passed=True,native_checkpoint_result=checkpoint_result,actual_model_backward_verified=backward,backward_checks=backward_checks,kind='native-fsdp2-initial-actor-base-reference-not-formal-grpo',native_adapter_exports=dict(initial=initial_export,perturbed=perturbed_export),physical_rollout_weight_sync_verified=False,native_engine_class=type(engine).__module__+'.'+type(engine).__name__,model_revision=plan['revision'],source_batch_sha256=hashlib.sha256((batch_root/'native_batch_tensors.json').read_bytes()).hexdigest(),recompute_temperature=1.,independent_causal_alignment_max_error=alignment_error,source_rows=2,unique_source_sequences=len({tuple(row) for row in arrays['input_ids']}),source_sampling_temperature=json.loads((batch_root/'worker_config_raw.json').read_text())['actor_rollout_ref']['rollout']['temperature'],cross_backend_logprob_equivalence_verified=False,actor_reference_sampled_logprob_difference_max=float(delta.abs().max()),actor_reference_recorded_action_logratio_mean=float(delta.mean()),negative_adapter_control_max_logprob_difference=change,reference_unchanged_under_adapter_perturbation=True,adapter_restored=True,adapter_tensor_count=len(adapters),initial_adapter_sha256=initial_hash,optimizer_updates=int(checkpoint_update),model_generations=0,teacher_samples=0,reference_is_admitted_sft=False,full_vocabulary_kl_computed=False,peak_cuda_allocated_bytes=torch.cuda.max_memory_allocated()))
     finally:
         torch.distributed.destroy_process_group()
 

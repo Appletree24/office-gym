@@ -126,7 +126,7 @@ async def worker(fetch_root,instance,root,backend='direct'):
 
 
 def run(fetch_root,instance,out,backend='direct'):
-    if backend not in ('direct','ray','ray-worker','ray-manager','native-logprob','native-gradient','ray-weight-sync'):raise ValueError('explicit direct/ray probe backend required')
+    if backend not in ('direct','ray','ray-worker','ray-manager','native-logprob','native-gradient','native-engine-update','native-engine-resume','ray-weight-sync'):raise ValueError('explicit direct/ray probe backend required')
     root=Path(out).resolve();root.mkdir(parents=True,exist_ok=False)
     artifact_dirs=[root]
     if backend.startswith('ray'):
@@ -141,7 +141,7 @@ def run(fetch_root,instance,out,backend='direct'):
                 except FileNotFoundError:pass
         return total
     write_json(root/'resource_plan.json',dict(backend=backend,max_wall_seconds=WALL_SECONDS,max_gpu_hours=WALL_SECONDS/3600,max_gpu_mib=GPU_MIB,max_artifact_bytes=ARTIFACT_BYTES,max_api_cost_usd=0,max_rollouts=2,max_generation_requests=10,max_generated_tokens=1024,fetch_root=str(Path(fetch_root).resolve()),instance=str(Path(instance).resolve())))
-    for name in ('native_inference_probe.py','verl_loop.py','process_tree.py','verl_loop_sources.json','native_ray_backend.py','native_worker_generation_probe.py','rollout_context.py','native_logprob_probe.py','native_weight_sync_probe.py'):
+    for name in ('native_inference_probe.py','verl_loop.py','process_tree.py','verl_loop_sources.json','native_ray_backend.py','native_worker_generation_probe.py','rollout_context.py','native_logprob_probe.py','native_weight_sync_probe.py','native_engine_checkpoint_probe.py'):
         (root/('executed_'+name)).write_bytes(Path(__file__).with_name(name).read_bytes())
     idle=subprocess.run(['nvidia-smi','--query-compute-apps=pid','--format=csv,noheader'],capture_output=True,text=True,check=True,timeout=10)
     if idle.stdout.strip():
@@ -181,9 +181,14 @@ def run(fetch_root,instance,out,backend='direct'):
 
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--fetch-root',required=True);parser.add_argument('--instance',required=True);parser.add_argument('--out',required=True);parser.add_argument('--worker',action='store_true',help=argparse.SUPPRESS);parser.add_argument('--backend',choices=('direct','ray','ray-worker','ray-manager','native-logprob','native-gradient','ray-weight-sync'),default='direct');args=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--fetch-root',required=True);parser.add_argument('--instance',required=True);parser.add_argument('--out',required=True);parser.add_argument('--worker',action='store_true',help=argparse.SUPPRESS);parser.add_argument('--backend',choices=('direct','ray','ray-worker','ray-manager','native-logprob','native-gradient','native-engine-update','native-engine-resume','ray-weight-sync'),default='direct');args=parser.parse_args()
     if args.worker:
-        if args.backend=='ray-weight-sync':
+        if args.backend in ('native-engine-update','native-engine-resume'):
+            from .native_logprob_probe import worker as engine_worker
+            source=Path(args.instance)
+            batch=source if args.backend=='native-engine-update' else Path(json.loads((source/'resource_plan.json').read_text())['instance'])
+            asyncio.run(engine_worker(args.fetch_root,batch,args.out,backward=args.backend=='native-engine-update',checkpoint_update=args.backend=='native-engine-update',resume_root=source if args.backend=='native-engine-resume' else None))
+        elif args.backend=='ray-weight-sync':
             from .native_weight_sync_probe import worker as sync_worker
             asyncio.run(sync_worker(args.fetch_root,args.instance,args.out))
         elif args.backend in ('native-logprob','native-gradient'):
