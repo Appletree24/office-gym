@@ -19,6 +19,7 @@ def fixtures():
                     "instance_id":instance, "scenario_family_id":instance, "repeat_id":repeat,
                     "group":group, "split":"id_test", "template_id":"T01",
                     "depth_level":1, "perturbation_level":0,
+                    "model_version":"test-model", "reward_version":"test-reward", "harness_version":"test-harness",
                     "env_version":"test-env", "eval_grader_version":"test-grader",
                     "dataset_manifest_hash":"test-manifest", "budget_hash":"test-budget",
                     "success":group=="b", "infra_error":False, "fault_injected":False,
@@ -30,6 +31,28 @@ def fixtures():
     return rows, plan
 
 class StatisticsTests(unittest.TestCase):
+    def test_model_revision_drift_within_group_rejected(self):
+        rows,plan=fixtures()
+        rows[0]['model_version']='changed'
+        with self.assertRaisesRegex(ValueError,'Model version changed'):
+            analysis.select_and_validate(rows,plan,'a','b','id_test')
+
+    def test_harness_comparison_cannot_change_model(self):
+        rows,plan=fixtures()
+        for row in rows+plan:
+            row['group']='api_simple' if row['group']=='a' else 'api_full'
+        for row in rows:
+            row['model_version']=row['group']
+        with self.assertRaisesRegex(ValueError,'same model version'):
+            analysis.select_and_validate(rows,plan,'api_simple','api_full','id_test')
+
+    def test_different_models_allowed_for_training_comparison(self):
+        rows,plan=fixtures()
+        for row in rows:
+            if row['group']=='b':
+                row['model_version']='another-checkpoint'
+        self.assertEqual(len(analysis.select_and_validate(rows,plan,'a','b','id_test')),12)
+
     def test_complete_pairing(self):
         rows, plan = fixtures()
         self.assertEqual(len(analysis.select_and_validate(rows,plan,"a","b","id_test")),12)

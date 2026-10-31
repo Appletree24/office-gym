@@ -1,8 +1,16 @@
 """Export measured planned runs; software probes are excluded from formal statistics."""
+from officegym.env.world import canonical
 import hashlib
 import json
 import sqlite3
 from pathlib import Path
+
+
+def evaluation_budget_hash(budget,config):
+    if config['budget']!=budget:
+        raise ValueError('recorded episode budget differs from resolved evaluation config')
+    identity = dict(episode=budget,max_context_tokens=config['max_context_tokens'],max_output_tokens=config['max_output_tokens'])
+    return hashlib.sha256(canonical(identity).encode()).hexdigest()
 
 
 def result_row(run_dir,plan_row,dataset_manifest):
@@ -38,11 +46,16 @@ def result_row(run_dir,plan_row,dataset_manifest):
         duplicates = db.execute('SELECT coalesce(sum(n-1),0) FROM (SELECT count(*) n FROM outbox GROUP BY meeting_id,meeting_version,kind,recipient_id,canonical_purpose HAVING count(*)>1)').fetchone()[0]
     finally:
         db.close()
+    config = json.loads((root/'resolved_eval_config.json').read_text())
+    budget = json.loads((root/'budget.json').read_text())
+    budget_hash = evaluation_budget_hash(budget,config)
     termination,grade = result['termination'],result['grade']
+    if any(grade[field]!=result['versions'][field] for field in ('eval_grader_version','reward_version')):
+        raise ValueError('result grade differs from recorded scoring versions')
     infrastructure = bool(result.get('infrastructure_error')) or termination['state']=='INFRA_ERROR'
     done = bool(final['finished'])
-    row = dict(plan_row,env_version=result['versions']['env_version'],eval_grader_version=result['versions']['eval_grader_version'],
-               dataset_manifest_hash=hashlib.sha256(manifest_path.read_bytes()).hexdigest(),budget_hash=hashlib.sha256((root/'budget.json').read_bytes()).hexdigest(),
+    row = dict(plan_row,env_version=result['versions']['env_version'],eval_grader_version=result['versions']['eval_grader_version'],reward_version=result['versions']['reward_version'],harness_version=result['versions']['harness_version'],
+               dataset_manifest_hash=hashlib.sha256(manifest_path.read_bytes()).hexdigest(),budget_hash=budget_hash,
                success=bool(grade['full_success']) and not infrastructure,infra_error=infrastructure,fault_injected=False,recovery_started=False,
                duplicate_effects=duplicates,premature_completion=done and not grade['outcome_ok'],declared_done=done,
                generated_tokens=termination.get('generated_tokens',0),input_tokens=termination.get('input_tokens',0),tool_calls=final['tool_calls'],

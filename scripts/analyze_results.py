@@ -12,11 +12,11 @@ import random
 import statistics
 
 KEY_FIELDS = ("group", "split", "instance_id", "repeat_id")
-VERSION_FIELDS = ("env_version", "eval_grader_version", "dataset_manifest_hash", "budget_hash")
+VERSION_FIELDS = ("env_version", "eval_grader_version", "reward_version", "harness_version", "dataset_manifest_hash", "budget_hash")
 TASK_FIELDS = ("scenario_family_id", "template_id", "depth_level", "perturbation_level")
 BOOL_FIELDS = ("success", "infra_error", "fault_injected", "recovery_started", "premature_completion", "declared_done")
 INT_FIELDS = ("repeat_id", "duplicate_effects", "generated_tokens", "input_tokens", "tool_calls", "sim_seconds")
-TEXT_FIELDS = ("instance_id", "scenario_family_id", "group", "split", "template_id") + VERSION_FIELDS
+TEXT_FIELDS = ("instance_id", "scenario_family_id", "group", "split", "template_id") + VERSION_FIELDS + ("model_version",)
 ROOT = Path(__file__).resolve().parents[1]
 
 def read_jsonl(path):
@@ -95,6 +95,13 @@ def select_and_validate(rows, plan, group_a, group_b, split, repeats=3):
         if len({r[field] for r in selected}) != 1:
             raise ValueError(f"Incomparable versions: {field}")
     groups = {g: [r for r in selected if r["group"] == g] for g in (group_a, group_b)}
+    for group,items in groups.items():
+        if len({row["model_version"] for row in items})!=1:
+            raise ValueError("Model version changed within group: "+group)
+    def model_family(group):
+        return group.rsplit('_',1)[0] if group.endswith(('_simple','_full')) else group
+    if model_family(group_a)==model_family(group_b) and groups[group_a][0]['model_version']!=groups[group_b][0]['model_version']:
+        raise ValueError("Harness comparison requires the same model version")
     pair_keys = [{(r["instance_id"], r["repeat_id"]) for r in groups[g]} for g in (group_a, group_b)]
     if pair_keys[0] != pair_keys[1] or not pair_keys[0]:
         raise ValueError("Groups do not contain identical instance/repeat pairs")
@@ -186,6 +193,7 @@ def paired_bootstrap(rows, group_a, group_b, cluster_field="instance_id", sample
 def build_report(rows, group_a, group_b, split, cluster_field="instance_id", samples=5000):
     report = {"split": split, "group_a": group_a, "group_b": group_b,
               "versions": {k: rows[0][k] for k in VERSION_FIELDS},
+              "model_versions": {g: sorted({r["model_version"] for r in rows if r["group"]==g}) for g in (group_a,group_b)},
               "groups": {g: summary([r for r in rows if r["group"] == g]) for g in (group_a, group_b)},
               "limitations": [
                   "Evaluation repeats do not capture training-seed uncertainty.",

@@ -26,7 +26,10 @@
     "input_tokens",
     "tool_calls",
     "wall_seconds",
-    "sim_seconds"
+    "sim_seconds",
+    "model_version",
+    "reward_version",
+    "harness_version"
   ],
   "properties": {
     "instance_id": {
@@ -118,9 +121,20 @@
     },
     "synthetic": {
       "const": false
+    },
+    "model_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reward_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "harness_version": {
+      "type": "string",
+      "minLength": 1
     }
   },
   "additionalProperties": true,
   "description": "One row per planned run. Write explicit infra_error rows for exhausted retries. Keep full manifests/checkpoint hashes/seed/token logs in linked artifacts."
 }
-
