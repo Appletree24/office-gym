@@ -51,6 +51,7 @@ class CollectionTests(unittest.TestCase):
                 calls.append(str(frozen))
                 self.assertNotEqual(Path(frozen),path)
                 self.assertEqual(json.loads(Path(frozen).read_text())['budget']['generated_tokens'],100)
+                self.assertEqual(json.loads(Path(frozen).read_text())['context_policy'],'training_full_history')
                 self.assertEqual(len((root/'collection'/'reservations.jsonl').read_text().splitlines()),len(calls))
                 success=len(calls)==2
                 path.write_text('{}')
@@ -79,3 +80,19 @@ class CollectionTests(unittest.TestCase):
             self.assertEqual(report['successful_tasks'],0)
             self.assertEqual(report['generation_cap_overruns'],1)
             self.assertTrue(report['budget_stop'])
+
+
+    def test_context_overflow_cannot_be_a_collected_success_even_if_grade_is_true(self):
+        import json,tempfile
+        from pathlib import Path
+        from officegym.tasks.generate import generate
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);generate(root/'tasks',templates=['T01'],count_per_template=1,split='train')
+            config=dict(endpoint='http://localhost:8000/v1/chat/completions',model='fixture',model_version='fixture',tokenizer_path=str(root),tokenizer_revision='fixture',mode='full',budget=dict(tool_calls=10,generated_tokens=100,wall_seconds=20,parse_retries=2),max_context_tokens=8192,max_output_tokens=512)
+            path=root/'config.json';path.write_text(json.dumps(config))
+            def execute(*args):return dict(termination=dict(state='CONTEXT_OVERFLOW',generated_tokens=1),grade=dict(full_success=True))
+            report=collect(root/'tasks/manifest.json',path,root/'collection',max_attempts_per_task=1,max_episodes=1,max_generated_tokens=100,run=execute)
+            self.assertEqual(report['successful_tasks'],0);self.assertEqual(json.loads((root/'collection/successful_runs.json').read_text()),[])
+            config['max_context_tokens']=12288;path.write_text(json.dumps(config))
+            with self.assertRaisesRegex(ValueError,'at most 8192'):collect(root/'tasks/manifest.json',path,root/'invalid',max_attempts_per_task=1,max_episodes=1,max_generated_tokens=100,run=execute)
+            self.assertFalse((root/'invalid').exists())

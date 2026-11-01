@@ -262,6 +262,15 @@ class Harness:
                 if time.monotonic()-started>=self.budget.wall_seconds:
                     self.state='BUDGET_STOP'
                     break
+                if self.context_manager is not None and hasattr(self.context_manager,'validate_history'):
+                    from .context import ContextOverflow
+                    try:
+                        history_info=self.context_manager.validate_history(self.messages,tool_schemas())
+                    except ContextOverflow as error:
+                        log({'kind':'context_history_overflow','context_policy':'training_full_history','full_history_tokens':getattr(error,'full_history_tokens',None),'max_history_tokens':getattr(error,'max_history_tokens',None)})
+                        self.state='CONTEXT_OVERFLOW'
+                        break
+                    log({'kind':'context_history_validation',**history_info})
                 if turn.tool == 'task.finish' and result['ok']:
                     self.state = 'DECLARED_DONE'
                     break

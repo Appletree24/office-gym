@@ -33,6 +33,13 @@ class PromptTokenizer:
     def __call__(self,messages,schemas):
         return len(self.token_ids(messages,schemas))
 
+    def history_tokens(self,messages,schemas):
+        """Complete training conversation, without an extra generation prefix."""
+        tools=[{'type':'function','function':{'name':tool['name'],'description':tool['description'],'parameters':tool['inputSchema']}} for tool in schemas]
+        ids=self.tokenizer.apply_chat_template(render_template_messages(messages),tools=tools,tokenize=True,add_generation_prompt=False,return_dict=False,**self.template_kwargs)
+        if not isinstance(ids,list) or any(type(token) is not int for token in ids):raise ValueError('native history token IDs required')
+        return len(ids)
+
     def manifest(self):
         vocabulary = self.tokenizer.get_vocab()
         vocab_hash = hashlib.sha256(json.dumps(vocabulary,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()

@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 from officegym.harness.loop import Budget
 from officegym.harness.policy import ChatPolicy
 from officegym.harness.tokenizer import PromptTokenizer
-from officegym.harness.context import SimpleContext,FullContext
+from officegym.harness.context import SimpleContext,FullContext,TrainingContext
 from .episode import run_episode
 
 
@@ -27,10 +27,12 @@ def validate_config(config):
         raise ValueError('credential environment variable name required')
     if config.get('tool_choice','auto') not in ('required','auto'):
         raise ValueError('tool_choice must be required or auto')
+    if config.get('context_policy','evaluation') not in ('evaluation','training_full_history'):raise ValueError('unknown context policy')
     budget = Budget(**config['budget'])
     context,output = config['max_context_tokens'],config['max_output_tokens']
     if type(context) is not int or type(output) is not int or not 0<output<context:
         raise ValueError('invalid context/output limits')
+    if config.get('context_policy')=='training_full_history' and (config['mode']!='full' or config['max_context_tokens']>8192):raise ValueError('training history requires full harness and at most 8192 tokens')
     if not Path(config['tokenizer_path']).is_dir():
         raise ValueError('local tokenizer snapshot is missing')
     return budget
@@ -42,7 +44,9 @@ def evaluate_instance(instance,out,config_path):
     budget = validate_config(config)
     tokenizer = PromptTokenizer.load(config['tokenizer_path'],config['tokenizer_revision'],template_kwargs=config.get('template_kwargs'))
     policy = ChatPolicy(config['endpoint'],config['model'],config['model_version'],max_output_tokens=config['max_output_tokens'],temperature=config.get('temperature',0),api_key_env=config.get('api_key_env'),tool_choice=config.get('tool_choice','auto'))
-    if config['mode']=='full':
+    if config.get('context_policy')=='training_full_history':
+        context=TrainingContext(tokenizer,config['max_context_tokens'],config['max_output_tokens'],count_history_tokens=tokenizer.history_tokens)
+    elif config['mode']=='full':
         context = FullContext(tokenizer,config['max_context_tokens'],policy,trigger_tokens=config.get('compression_trigger_tokens',8192),reserved_output_tokens=config['max_output_tokens'],archive_path=Path(out)/'summaries.jsonl')
     else:
         context = SimpleContext(tokenizer,config['max_context_tokens'],config['max_output_tokens'])

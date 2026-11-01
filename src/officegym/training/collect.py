@@ -24,6 +24,7 @@ def collect(manifest_path,config_path,out,*,max_attempts_per_task,max_episodes,m
     if max_tasks is not None:
         entries=select_training_tasks(manifest,max_tasks,selection_seed)
     config = json.loads(config_path.read_text())
+    config['context_policy']='training_full_history'
     validate_config(config)
     if config['mode']!='full':
         raise ValueError('teacher collection requires full harness')
@@ -72,7 +73,7 @@ def collect(manifest_path,config_path,out,*,max_attempts_per_task,max_episodes,m
                 reported_wall=result.get('runner_wall_seconds',result['termination'].get('wall_seconds'))
                 if type(reported_wall) not in (int,float) or not math.isfinite(reported_wall) or reported_wall<0:
                     reported_wall=None
-                row = dict(instance_id=entry['instance_id'],attempt_id=attempt,run_dir=str(directory),success=bool(result['grade']['full_success']) and not overrun,reported_input_tokens=count('input_tokens'),reported_tool_calls=count('tool_calls'),reported_wall_seconds=reported_wall,collector_wall_seconds=elapsed,generation_cap_overrun=overrun,state=result['termination']['state'],reported_generated_tokens=tokens,reserved_generated_tokens=episode_cap,execution_error_type=execution_error)
+                row = dict(instance_id=entry['instance_id'],attempt_id=attempt,run_dir=str(directory),success=bool(result['grade']['full_success']) and result['termination']['state']=='DECLARED_DONE' and not overrun,reported_input_tokens=count('input_tokens'),reported_tool_calls=count('tool_calls'),reported_wall_seconds=reported_wall,collector_wall_seconds=elapsed,generation_cap_overrun=overrun,state=result['termination']['state'],reported_generated_tokens=tokens,reserved_generated_tokens=episode_cap,execution_error_type=execution_error)
                 attempts.append(row)
                 ledger.write(canonical(row)+'\n')
                 ledger.flush()

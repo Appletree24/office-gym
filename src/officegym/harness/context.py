@@ -54,6 +54,29 @@ class SimpleContext:
             removed.append(groups.pop(0))
 
 
+class TrainingContext(SimpleContext):
+    """Complete history only: refuse overflow instead of compression/truncation."""
+    def __init__(self,count_tokens,max_tokens,reserved_output_tokens,*,count_history_tokens):
+        super().__init__(count_tokens,max_tokens,reserved_output_tokens)
+        if max_tokens>8192:raise ValueError('P0 training context cannot exceed 8192 tokens')
+        self.max_tokens=max_tokens;self.count_history_tokens=count_history_tokens
+
+    def prepare(self,messages,schemas):
+        tokens=self.count_tokens(messages,schemas)
+        if type(tokens) is not int or tokens<0:raise ValueError('actual nonnegative prompt token count required')
+        if tokens>self.limit:raise ContextOverflow('complete training history plus reserved output exceeds context')
+        return copy.deepcopy(messages),dict(context_metrics_version='context-metrics-v1',context_policy='training_full_history',source_input_tokens=tokens,input_tokens=tokens,removed_groups=0,compressed=False,compression_triggered=False)
+
+    def validate_history(self,messages,schemas):
+        tokens=self.count_history_tokens(messages,schemas)
+        if type(tokens) is not int or tokens<0:raise ValueError('actual nonnegative history token count required')
+        if tokens>self.max_tokens:
+            error=ContextOverflow('complete training conversation exceeds context after observation')
+            error.full_history_tokens=tokens;error.max_history_tokens=self.max_tokens
+            raise error
+        return dict(context_policy='training_full_history',full_history_tokens=tokens,max_history_tokens=self.max_tokens)
+
+
 def observed_refs(messages):
     refs = set()
     def collect(value):

@@ -261,3 +261,8 @@ PYTHONPATH=src .venv/bin/python -m officegym.training.review_admission --data /a
 ```
 
 登记以原子替换更新数据 manifest 的审查状态与 packet／checklist 路径和哈希。数据身份指纹排除这两个审查登记字段，原 manifest 副本仍随审查包保存，避免哈希循环。SFT、RS-SFT 和训练血缘准入都会重新检查五个不同多轮样本、逐 token 对齐、所有检查项、审查包及源文件哈希。旧版审查包需要重新生成，不能仅补填 passed。记录属于具名人工声明，系统不提供审查者身份认证，也不能证明实际检查行为；软件测试中合成的记录明确标为夹具，不作为真实人工审查证据。
+
+
+Teacher 和 RS-SFT 采样现在会在保存的 resolved_sampling_config 中强制 `context_policy: training_full_history`，要求完整 Harness、`max_context_tokens <= 8192`。每次生成前用锁定 tokenizer 计算完整原始会话和工具 schema 的输入长度，并预留 max_output_tokens；超限直接记 CONTEXT_OVERFLOW，不调用模型、不摘要、不丢旧轮次。工具返回追加后再用无额外生成前缀的原生模板检查整条会话，最终 task.finish 的工具观察也纳入检查；超长不能 DECLARED_DONE 或进入 successful_runs。普通评测默认仍使用既有完整／简单 Harness 上下文策略。构建 SFT 时继续独立核对最终 assistant mask 及训练序列长度。
+
+`artifacts/teacher_pilot_history_feasibility_v1` 使用真实锁定 tokenizer、8,192 上限及 512 输出预留检查首批 40 个任务的作者参考解：38 条完整放得下，2 条在后续生成前超出预留条件，后两条参考解也均超过 24 次工具调用。保留全部选中任务和失败记录，没有按参考成绩／长度重选；实际 teacher 可能产生不同长度轨迹，不能将此结果写成 teacher 成功率或不可解证明。
