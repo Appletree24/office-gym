@@ -150,4 +150,10 @@ def poll(client, args):
         raise ToolError('INVALID_ARGUMENT')
     rows = [dict(row) for row in client.db.execute('SELECT * FROM event_log WHERE seq>? ORDER BY seq', (after,))
             if visible(row['visibility_json'],client.meta('principal_id'))]
-    return {'items':[{key:row[key] for key in PUBLIC_EVENT_FIELDS} for row in rows[:limit]], 'next_seq':rows[min(len(rows),limit)-1]['seq'] if rows else after}
+    kinds=args.get('kinds')
+    if kinds is not None and (not isinstance(kinds,list) or not kinds or len(kinds)>32 or any(not isinstance(kind,str) or not kind for kind in kinds) or len(kinds)!=len(set(kinds))):
+        raise ToolError('INVALID_ARGUMENT')
+    matching=rows if kinds is None else [row for row in rows if row['kind'] in kinds]
+    selected=matching[:limit]
+    cursor=selected[-1]['seq'] if len(matching)>limit else rows[-1]['seq'] if rows else after
+    return {'items':[{key:row[key] for key in PUBLIC_EVENT_FIELDS} for row in selected], 'next_seq':cursor}

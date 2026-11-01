@@ -1,5 +1,5 @@
 {
-  "version": "tools-v2-public-events",
+  "version": "tools-v3-filtered-public-events",
   "status": "interface_contract_not_server_implementation",
   "common": {
     "trusted_injected": [
@@ -116,7 +116,7 @@
       "required_arguments": [
         "after_seq"
       ],
-      "description": "Poll visible business-event facts after a sequence. Audit snapshots stay private; read object content through its authorized business tool."
+      "description": "Poll visible business-event facts after a sequence. Optional kinds selects event types. Filtered pagination advances past inspected visible events; retain earlier cursors if querying other types later. Audit snapshots stay private; read object content through its authorized business tool."
     },
     {
       "name": "mail.send",

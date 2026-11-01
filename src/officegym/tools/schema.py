@@ -6,12 +6,12 @@ CONTRACT = json.loads(read_text('tools.json'))
 TOOL_SCHEMA_VERSION=CONTRACT['version']
 STRINGS = {'query','thread_id','meeting_id','document_id','approval_id','operation_id','kind','subject','body','title','content','reason','assignee_id','source_meeting_id','todo_id','approver_id','summary','cursor','after_message_id'}
 INTEGERS = {'start_at','end_at','version','expected_version','meeting_version','due_at','until','after_seq','limit'}
-ARRAYS = {'person_ids','participant_ids','recipient_ids','document_refs','attachment_refs'}
+ARRAYS = {'person_ids','participant_ids','recipient_ids','document_refs','attachment_refs','kinds'}
 OPTIONAL = {
     'people.search':['limit','cursor'], 'calendar.query':['limit','cursor'],
     'mail.search':['limit','cursor'], 'mail.get_thread':['limit','after_message_id'],
     'documents.search':['limit','cursor'], 'documents.read':['limit','cursor'],
-    'todos.search':['limit','cursor'], 'events.poll':['limit'],
+    'todos.search':['limit','cursor'], 'events.poll':['limit','kinds'],
     'calendar.create':['document_refs'],
     'mail.send':['meeting_id','meeting_version','approval_id','thread_id','attachment_refs','request'],
 }
@@ -25,7 +25,7 @@ def tool_schemas():
         for key in fields:
             kind = 'string' if key in STRINGS else 'integer' if key in INTEGERS else 'array' if key in ARRAYS else 'object'
             properties[key] = {'type':kind}
-            if key in ('person_ids','participant_ids','recipient_ids'):
+            if key in ('person_ids','participant_ids','recipient_ids','kinds'):
                 properties[key]['items'] = {'type':'string'}
             if key == 'approval_id' and tool['name']=='mail.send':
                 properties[key]['type'] = ['string','null']
