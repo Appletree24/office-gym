@@ -75,7 +75,22 @@ def main():
     assembled = commands.add_parser('assemble-dataset',help='Assemble configured development dataset, not frozen')
     assembled.add_argument('--config',required=True)
     assembled.add_argument('--out',required=True)
+    run_plan = commands.add_parser('freeze-run-plan',help='Write immutable run keys/checksum; does not freeze or admit the dataset')
+    run_plan.add_argument('--manifest',required=True)
+    run_plan.add_argument('--out',required=True)
+    run_plan.add_argument('--priority',choices=('P0','P1'),default='P0')
+    run_plan.add_argument('--splits',default='id_test,combo_test,unseen_test')
     args = parser.parse_args()
+    if args.command == 'freeze-run-plan':
+        from pathlib import Path
+        from officegym.tasks.validate import validate_dataset
+        from officegym.eval.plan import build_plan,freeze_plan
+        validate_dataset(args.manifest)
+        manifest=json.loads(Path(args.manifest).read_text())
+        rows=build_plan(manifest['instances'],priority=args.priority,splits=tuple(args.splits.split(',')))
+        digest=freeze_plan(rows,args.out)
+        print(json.dumps(dict(planned_runs=len(rows),sha256=digest,dataset_status=manifest['status'],scope='Run-key plan only; dataset admission and experiment chronology require separate evidence.')))
+        return
     if args.command == 'assemble-dataset':
         from officegym.tasks.assemble import assemble
         print(json.dumps(assemble(args.config,args.out),indent=2))
