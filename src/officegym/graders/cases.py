@@ -19,6 +19,8 @@ def generate_cases(out):
     designs += [(name,False,['invitation_time_constraint_violation']) for name in ('invite_time_early_repaired','invite_time_late_repaired','invite_time_duration_repaired')]
     designs += [('invite_time_wrong_requested_repaired',False,['reschedule_request_not_honored_at_send'])]
     designs += [('invite_time_at_start',True,[]),('invite_time_past',False,['invitation_time_constraint_violation'])]
+    designs += [(name,True,[]) for name in ('reply_draft_before_collection','reply_collection_before_draft')]
+    designs += [(name,False,['invitation_before_valid_availability_reply']) for name in ('reply_early_repaired','reply_window_repaired','reply_early_cancelled')]
     for name,expected,violations in designs:
         directory = root/name
         directory.mkdir()
@@ -53,6 +55,10 @@ def generate_cases(out):
                 with world.db:
                     world.db.execute('INSERT INTO scheduled_events VALUES (?,?,?,?,?,?,?,?)',('reschedule',500,1,'MeetingRescheduleRequested','{}',canonical({'meeting_selector':{'organizer_id':'a','title':'Review'},'start_at':6000,'end_at':7800}),'["a","b"]','pending'))
             with sqlite3.connect(directory/'initial.sqlite') as snapshot:world.db.backup(snapshot)
+        if name.startswith('reply_'):
+            spec.update(title='Review',collect_availability=True)
+            with world.db:client.set_meta('reply_rules',{'b':{'availability':{'delay_seconds':180,'response':'provided','facts':{'available_windows':[[4000 if name=='reply_window_repaired' else 3000,8000]]}}}})
+            with sqlite3.connect(directory/'initial.sqlite') as snapshot:world.db.backup(snapshot)
         if name.startswith('deadline_'):
             spec['deadline_at'] = {'deadline_before':191,'deadline_at':190,'deadline_after':189}[name]
         if name=='message_cap':
@@ -65,6 +71,12 @@ def generate_cases(out):
                 if not result['ok']:
                     raise RuntimeError(result)
                 return result['data']
+            def collect_replies():
+                sent=call('mail.send',dict(recipient_ids=['b'],kind='coordination',subject='Availability',body='Please provide availability',request={'type':'availability'}),'availability_request')
+                call('clock.wait',{'until':client.meta('sim_time')+180},None)
+                thread=call('mail.get_thread',{'thread_id':sent['message_id']},None)
+                if not any(row['kind']=='reply' for row in thread['items']):raise RuntimeError('authored reply case did not obtain a real reply')
+            if name=='reply_collection_before_draft':collect_replies()
             if name in ('stale_material','missing_attachment'):
                 call('documents.put',dict(document_id='brief',expected_version=0,title='Brief',content='Version one'),'doc1')
                 with world.db:
@@ -103,6 +115,7 @@ def generate_cases(out):
             if name=='stale_material':
                 meeting_args['document_refs'] = [dict(document_id='brief',version=1)]
             meeting = call('calendar.create',meeting_args,'create')
+            if name in ('reply_draft_before_collection','reply_window_repaired'):collect_replies()
             approval=None
             if name.startswith('approval_'):
                 approver='c' if name=='approval_wrong_approver' else 'b'
@@ -125,6 +138,13 @@ def generate_cases(out):
                 call('mail.send',args,'invite')
             if name=='approval_after_send':
                 call('clock.wait',{'until':client.meta('sim_time')+120},None)
+            if name in ('reply_early_repaired','reply_early_cancelled','reply_window_repaired'):
+                if name=='reply_early_cancelled':call('calendar.cancel',dict(meeting_id=meeting['id'],expected_version=meeting['version'],reason='Authored cleanup after early send'),'cancel_early')
+                if name!='reply_window_repaired':collect_replies()
+                patch={'start_at':4000,'end_at':5800} if name=='reply_window_repaired' else {'title':'Review'}
+                if name=='reply_early_cancelled':meeting=call('calendar.create',dict(title='Review',participant_ids=['b'],start_at=4000,end_at=5800),'new_valid_meeting')
+                else:meeting=call('calendar.update',dict(meeting_id=meeting['id'],expected_version=meeting['version'],patch=patch),'repair_reply_meeting')
+                call('mail.send',dict(recipient_ids=['b'],kind='reschedule',subject='Review',body='',meeting_id=meeting['id'],meeting_version=meeting['version']),'repaired_reply_invite')
             if name=='legal_idempotent_retry':
                 call('mail.send',args,'invite')
             if name=='duplicate_invitation':
@@ -181,8 +201,8 @@ def generate_cases(out):
                         mutations.append(dict(table='messages',id=hidden['message_id']))
                 trace.write(canonical(dict(kind='offline_snapshot_mutation',deleted=mutations,note='No deletion tool exists; original receipt and MailSent event retained'))+'\n')
         world.close()
-        cases.append(dict(case_id=name,category='approval_authorization' if name.startswith('approval_') else 'todo_creation_scope' if name.startswith('todo_') else 'meeting_creation_scope' if name.startswith('meeting_') else 'invitation_membership' if name.startswith('invite_members_') else 'invitation_timing' if name.startswith('invite_time_') else name,label_source='hand_authored_tool_and_offline_fixture_v3',expected_success=expected,expected_violations=violations,spec=name+'/spec.json',final_world=name+'/final.sqlite',mutation_location=name+'/actions.jsonl'))
-        if name=='unrelated_cancellation' or name.startswith(('todo_','meeting_','invite_members_','invite_time_')):
+        cases.append(dict(case_id=name,category='approval_authorization' if name.startswith('approval_') else 'todo_creation_scope' if name.startswith('todo_') else 'meeting_creation_scope' if name.startswith('meeting_') else 'invitation_membership' if name.startswith('invite_members_') else 'invitation_timing' if name.startswith('invite_time_') else 'availability_at_invitation' if name.startswith('reply_') else name,label_source='hand_authored_tool_and_offline_fixture_v3',expected_success=expected,expected_violations=violations,spec=name+'/spec.json',final_world=name+'/final.sqlite',mutation_location=name+'/actions.jsonl'))
+        if name=='unrelated_cancellation' or name.startswith(('todo_','meeting_','invite_members_','invite_time_','reply_')):
             cases[-1]['initial_world'] = name+'/initial.sqlite'
     (root/'cases.json').write_text(canonical(cases))
     return len(cases)

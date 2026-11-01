@@ -63,6 +63,11 @@ def evaluate(world_path, spec, initial_path=None):
                     state_at_send = json.loads(changes[0])
                     if state_at_send['version'] != invitation['meeting_version'] or state_at_send['status']=='cancelled':
                         severe.append('stale_meeting_version_sent')
+            if spec.get('collect_availability'):
+                for person in json.loads(snapshot['participant_ids_json']):
+                    replies=availability_replies(db,spec['principal_id'],person,snapshot['start_at'],snapshot['end_at'])
+                    if not any(reply['sent_at']<=invitation['sent_at'] for reply in replies):
+                        severe.append('invitation_before_valid_availability_reply')
             if invitation['recipient_id'] not in json.loads(snapshot['participant_ids_json']):
                 severe.append('recipient_not_in_meeting_version')
             expected_body = {key:snapshot[key] for key in ('id','version','title','start_at','end_at','participant_ids_json','document_refs_json','business_digest')}

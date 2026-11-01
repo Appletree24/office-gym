@@ -47,7 +47,7 @@ LoRA merged 导出入口：`python -m officegym.training.merge --help`。解析�
 
 工具行为等价性入口：`python -m officegym.training.tool_equivalence freeze --help` / `finalize --help`。先冻结数值证据、dev 计划、阈值和预定结果路径（此时结果文件不得已存在），再使用有界评测入口分别采集 adapter 与 merged 模型结果。前者的 `model_version` 绑定数值报告中的 `source_checkpoint_files_sha256`，后者绑定 `exported_checkpoint_sha256`。最终验收重导出原始运行、重新评分保存的世界，要求完整三次重复、相同 tokenizer／采样／预算、无基础设施错误、无新增重复效果或严重违规。仅数值与工具检查都通过的报告才能用于 `record_export`；部署是否确实加载对应权重仍需服务端运行证据支持。
 
-当前开发候选为 `artifacts/dataset_development_v16`，尚未冻结。训练仍为 8 个模板各 100 条，其中 T04 按五个条件格各 20 条抽样，ID 每格 12 条使用独立种子；控制扫描固定背景邮件、初始材料大小、参与人数、时间窗口、截止/监控时间和消息上限。`workflow_count=1` 指一条会议工作流，必需 DAG 宽度另行计算：当前受控五条件格均为 1，可选材料观察不计入因果先决节点。计划、结果及分层 CSV 都保留 `dependency_width`，跨宽度差异不能解释成纯深度效应；扰动档位指预设外部事件数，不等同于所有策略实际重规划次数。
+当前开发候选为 `artifacts/dataset_development_v18`，尚未冻结。训练仍为 8 个模板各 100 条，其中 T04 按五个条件格各 20 条抽样，ID 每格 12 条使用独立种子；控制扫描固定背景邮件、初始材料大小、参与人数、时间窗口、截止/监控时间和消息上限。`workflow_count=1` 指一条会议工作流，必需 DAG 宽度另行计算：当前受控五条件格均为 1，可选材料观察不计入因果先决节点。计划、结果及分层 CSV 都保留 `dependency_width`，跨宽度差异不能解释成纯深度效应；扰动档位指预设外部事件数，不等同于所有策略实际重规划次数。
 
 
 真实 tokenizer 的 CPU 探针使用独立环境（Python 3.12/Linux），不安装 Torch 或下载模型权重：
@@ -56,7 +56,7 @@ LoRA merged 导出入口：`python -m officegym.training.merge --help`。解析�
 python3 -m venv .venv-tokenizer
 .venv-tokenizer/bin/python -m pip install --require-hashes -r requirements-tokenizer.lock
 .venv-tokenizer/bin/hf download Qwen/Qwen3-4B-Instruct-2507 --revision cdbee75f17c01a7cc42f958dc650907174af0554 --include 'tokenizer*.json' vocab.json merges.txt config.json --local-dir artifacts/qwen-tokenizer
-HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PYTHONPATH=src .venv-tokenizer/bin/python -m officegym.training.tokenizer_probe --tokenizer artifacts/qwen-tokenizer --revision cdbee75f17c01a7cc42f958dc650907174af0554 --out artifacts/NEW_TOKENIZER_PROBE --dataset-manifest artifacts/dataset_development_v16/manifest.json
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PYTHONPATH=src .venv-tokenizer/bin/python -m officegym.training.tokenizer_probe --tokenizer artifacts/qwen-tokenizer --revision cdbee75f17c01a7cc42f958dc650907174af0554 --out artifacts/NEW_TOKENIZER_PROBE --dataset-manifest artifacts/dataset_development_v18/manifest.json
 ```
 
 [该固定 revision 的官方文件](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507/tree/cdbee75f17c01a7cc42f958dc650907174af0554)中的模板没有 assistant generation 标记。SFT 入口只对已锁定模板哈希添加 generation 区间标注，仍使用 Transformers 原生 assistant mask，并逐样本检查渲染文本和 token IDs 完全不变。推理模板保持原版；未知模板继续要求其提供有效原生 mask。生成的训练 manifest 记录原始和标注模板哈希，token_alignment.jsonl 供逐 token 审阅。当前真实 tokenizer 检查覆盖 14 个模板的 19 条参考变体；全量长度审计发现 800 条训练参考轨迹中 40 条超过 8,192 token（此前为 60／159 条）。它们是手工参考解的长度，不能当作真实教师采样结果；正式数据冻结前仍须校准长度／预算并验证真实服务的一致性。
@@ -67,7 +67,7 @@ HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PYTHONPATH=src .venv-tokenizer/bin/pytho
 
 参考解版本 reference-v3-batched-availability 在单个协调线程向全部参与人询问，逐人核对 provided 回复并增量读取分页；审批先利用请求返回的 pending 状态再等待。v16 的公开业务任务同 v15，DAG 元数据与宽度标注有修正。当前仍有 40 条训练参考解超过 8,192 token，另有 40 条超过 24 次工具调用上限，需继续校准。
 
-参考轨迹的真实 mask 检查可复跑：`HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PYTHONPATH=src .venv-tokenizer/bin/python -m officegym.training.reference_tokenizer_probe --manifest artifacts/dataset_development_v16/manifest.json --tokenizer artifacts/qwen-tokenizer --revision cdbee75f17c01a7cc42f958dc650907174af0554 --out artifacts/NEW_REFERENCE_MASK_PROBE`。它每个模板／深度／扰动组合检查一条参考轨迹，并保存原始 token ID 哈希及 mask 来源；输出不作为真实教师数据或训练结果。
+参考轨迹的真实 mask 检查可复跑：`HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PYTHONPATH=src .venv-tokenizer/bin/python -m officegym.training.reference_tokenizer_probe --manifest artifacts/dataset_development_v18/manifest.json --tokenizer artifacts/qwen-tokenizer --revision cdbee75f17c01a7cc42f958dc650907174af0554 --out artifacts/NEW_REFERENCE_MASK_PROBE`。它每个模板／深度／扰动组合检查一条参考轨迹，并保存原始 token ID 哈希及 mask 来源；输出不作为真实教师数据或训练结果。
 
 
 CUDA 基础运行时已在 A800 上验证 PyTorch 2.8.0+cu128／CUDA 12.8。独立环境安装使用固定哈希 lock 和有界安装器（需要全新环境／输出路径）：
@@ -113,7 +113,7 @@ verl 保存事件桥接已实现，绑定固定 commit 的 8 个源码哈希，�
 
 ```bash
 PYTHONPATH=src .venv-rl/bin/python -m officegym.training.native_loop_probe \
-  --instance artifacts/dataset_development_v16/train_atomic/T01_100000 \
+  --instance artifacts/dataset_development_v18/train_atomic/T01_100000 \
   --model artifacts/qwen3_4b_base_cdbee75_v1/model \
   --out artifacts/NEW_NATIVE_PROTOCOL
 ```
@@ -125,7 +125,7 @@ PYTHONPATH=src .venv-rl/bin/python -m officegym.training.native_loop_probe \
 ```bash
 PYTHONPATH=src .venv-rl/bin/python -m officegym.training.native_inference_probe \
   --fetch-root artifacts/qwen3_4b_base_cdbee75_v1 \
-  --instance artifacts/dataset_development_v16/train_atomic/T01_100000 \
+  --instance artifacts/dataset_development_v18/train_atomic/T01_100000 \
   --out artifacts/NEW_NATIVE_MODEL_PROBE
 ```
 
@@ -154,7 +154,7 @@ PYTHONPATH=src .venv-rl/bin/python scripts/probe_native_effective_groups.py \
 ```bash
 PYTHONPATH=src .venv-rl/bin/python -m officegym.training.native_inference_probe \
   --backend ray --fetch-root artifacts/qwen3_4b_base_cdbee75_v1 \
-  --instance artifacts/dataset_development_v16/train_atomic/T01_100000 \
+  --instance artifacts/dataset_development_v18/train_atomic/T01_100000 \
   --out artifacts/NEW_NATIVE_RAY_PROBE
 ```
 
@@ -176,7 +176,7 @@ PYTHONPATH=src RAY_USAGE_STATS_ENABLED=0 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 ```bash
 PYTHONPATH=src .venv-rl/bin/python -m officegym.training.native_inference_probe \
   --backend ray-worker --fetch-root artifacts/qwen3_4b_base_cdbee75_v1 \
-  --instance artifacts/dataset_development_v16/train_atomic/T01_100000 \
+  --instance artifacts/dataset_development_v18/train_atomic/T01_100000 \
   --out artifacts/NEW_LIVE_WORKER_PROBE
 ```
 
@@ -187,7 +187,7 @@ PYTHONPATH=src .venv-rl/bin/python -m officegym.training.native_inference_probe 
 ```bash
 PYTHONPATH=src .venv-rl/bin/python -m officegym.training.native_inference_probe \
   --backend ray-manager --fetch-root artifacts/qwen3_4b_base_cdbee75_v1 \
-  --instance artifacts/dataset_development_v16/train_atomic/T01_100000 \
+  --instance artifacts/dataset_development_v18/train_atomic/T01_100000 \
   --out artifacts/NEW_NATIVE_MANAGER_PROBE
 ```
 
@@ -234,10 +234,10 @@ PYTHONPATH=src .venv/bin/python -m officegym.training.teacher_gateway --config /
 首批 teacher 采样按手册先选择 40 个训练任务。离线选样无需模型服务、密钥或费用预算：
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m officegym.training.pilot --manifest artifacts/dataset_development_v16/manifest.json --out artifacts/NEW_TEACHER_PILOT
+PYTHONPATH=src .venv/bin/python -m officegym.training.pilot --manifest artifacts/dataset_development_v18/manifest.json --out artifacts/NEW_TEACHER_PILOT
 ```
 
-选样器先按模板轮询，再在模板内按深度／扰动层轮询，用显式 seed 与任务 ID 的 SHA256 确定层内顺序。它只读取训练任务身份及层信息，不以参考成绩或长度筛选，不保证有限名额覆盖所有层。`selection.json` 保存任务清单、选择规则、seed、模板计数和源 manifest 哈希；当前 40 任务计划及独立核对位于 `artifacts/teacher_pilot_selection_v7`，T01–T08 各 5 个。此计划基于尚未冻结的开发数据，不表示数据已获正式准入。
+选样器先按模板轮询，再在模板内按深度／扰动层轮询，用显式 seed 与任务 ID 的 SHA256 确定层内顺序。它只读取训练任务身份及层信息，不以参考成绩或长度筛选，不保证有限名额覆盖所有层。`selection.json` 保存任务清单、选择规则、seed、模板计数和源 manifest 哈希；当前 40 任务计划及独立核对位于 `artifacts/teacher_pilot_selection_v9`，T01–T08 各 5 个。此计划基于尚未冻结的开发数据，不表示数据已获正式准入。
 
 `collect-teacher` CLI 默认 `--max-tasks 40 --selection-seed officegym-teacher-pilot-v1`，按同一规则选样，在首次调用模型前保存完整选择清单及其哈希。扩大采样需显式提高 `--max-tasks`，仍受必填的 episode／生成 token 预算和每任务最多三次尝试限制；较小预算可能只执行计划的一部分，汇总分别记录 selected_tasks 和 attempted_tasks。使用相同 manifest、seed 和任务上限可复现离线计划。底层 `collect()` 未传 max_tasks 时保留全训练池行为，供现有显式预算的 RS-SFT 调用使用。真实采样仍须先完成教师配置与实际费用预算；离线计划不提供通过率或费用估计。
 
@@ -355,7 +355,7 @@ artifacts/document_acl_probe_v2 的两轮共 38 次调用，每轮 8 次预期�
 当前评分下的 D3 约束跳阶段审计可完整复跑：
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m officegym.graders.dependency_probe --manifest artifacts/dataset_development_v16/manifest.json --out artifacts/NEW_D3_PROBES --max-instances 142 --max-wall-seconds 170
+PYTHONPATH=src .venv/bin/python -m officegym.graders.dependency_probe --manifest artifacts/dataset_development_v18/manifest.json --out artifacts/NEW_D3_PROBES --max-instances 142 --max-wall-seconds 170
 ```
 
 入口先验证当前数据，再要求实例上限能覆盖完整 D3 池，不能静默截取一部分后声称完整覆盖。按任务选择适用约束：确认、回复收集、材料绑定、会后待办，以及 U04 的负责人修正和通知。控制器明确标记伪造观察／修改参数；缺失待办时也提供连贯的后续伪观察，使参考程序能到达 task.finish，而不是因不存在的 ID 提前崩溃。回复夹具使用既定规则事实隔离证据缺失，不给真实模型新增私有入口。记录只有在截断了对应阶段、未超截止时间、已声明完成且命中预期违规时才算通过。
@@ -381,3 +381,10 @@ PYTHONPATH=src .venv/bin/python -m officegym.tasks.regrade --manifest /absolute/
 The explicit metadata migration removes ten optional read_handoff_chain nodes and corrects ten widths; no path lengths change. Independent audit verifies all 1,010 public task payloads, initial/private/event-rule/reference-action/grade files, semantic fingerprints and reference final hashes remain unchanged. All annotated DAG widths are now one; this is not exhaustive proof of causal paths. Optional tool metadata now includes purpose scopes (mail.get_thread: handoff_chain, documents.read: material_body when applicable), so it does not declare every use of the mail tool optional. Use --repair-optional-observations for explicit migration; --repair-optional-material remains a compatibility alias.
 
 Evidence: handoff_read_optional_probe_v1 preserves the pre-repair proof; v2 verifies all ten current instances with zero handoff reads. dataset_v17_reference_replay passes all 1,010 grades/state hashes/operation audits; dependency_skip_probe_v17 passes all 368 selected-stage interventions over 142 D3 instances. teacher_pilot_selection_v8 preserves the same forty planned tasks as v7. optional_handoff_package_v1 verifies all 143 wheel source/resource files and isolated imports. No model/teacher/API calls or training took place. Human mask review, real sixteen-sample overfit, admitted SFT/export and formal GRPO/RS-SFT and frozen scientific evaluations remain pending.
+
+
+2026-11-01 历史邀请的回复证据修复：评分器升级为 eval-v10-invitation-availability / reward-v10-invitation-availability。原评分器只保证最终版本存在晚于有效回复的邀请，遗漏了历史版本已经外发的违规事实。artifacts/grader_reply_evidence_v1 保留真实工具执行的三个反例：提前邀请后补回复、邀请窗口不符合回复后改正，以及取消早期错误邀请。v9 三例均误判成功；v10 逐条读取实际发送版本的会议快照，核对该版本所有参会人的有效回复是否在发送时已到达、且覆盖该版本时间，三例均以 invitation_before_valid_availability_reply 拒绝。后续修正或取消不能抹去历史违规。
+
+新增两个合法案例分别先建草稿后收回复、先收回复后建草稿，均通过；不能将本次评分修复理解为强制 calendar.create 的调用顺序。两个额外测试检查只有一名参会人迟回复的情形，以及回复与发送时间相等时实际先到达后外发的合法事件边界。全部348项测试通过，导出案例集56例（20合法、36负例）零标签偏差。独立SQL审计及带版本的漏洞记录保存在 grader_reply_evidence_v1；这是一个人工构造根因，模型发现数为0，没有正式训练checkpoint需要重评。
+
+当前未冻结候选 artifacts/dataset_development_v18 在新评分器下重评全部1,010例通过（9.91秒），全量新重放的成绩、终态哈希及操作证据均匹配。独立核对确认全部任务输入／DAG标注、初始世界、私有约束、规则、参考动作和参考终态文件与v17完全一致，参考成绩仅版本字段变化。dependency_skip_probe_v18 的全部142个D3实例／368条选定干预均命中拒绝；teacher_pilot_selection_v9 的40个任务身份不变。invitation_reply_package_v1 验证143个wheel文件及隔离导入。未进行模型、教师、优化器或付费调用；真实教师采集、人工mask审查、16样本过拟合、正式SFT／GRPO／RS-SFT、通过验收的导出及冻结科学实验仍未完成。
