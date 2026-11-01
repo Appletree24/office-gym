@@ -118,13 +118,24 @@ def main():
     grpo_train = commands.add_parser('train-grpo',help='Launch admitted GRPO using the existing locked upstream runner')
     grpo_train.add_argument('--config',required=True)
     grpo_train.add_argument('--out',required=True)
-    fault_eval = commands.add_parser('fault-evaluate',help='One full-mode commit-fault episode; paired/context-rebuild evaluation remains pending')
+    fault_eval = commands.add_parser('fault-evaluate',help='Commit fault with full recovery or conditional shared-prefix simple/full branches')
     fault_eval.add_argument('--instance',required=True)
     fault_eval.add_argument('--config',required=True)
     fault_eval.add_argument('--out',required=True)
     fault_eval.add_argument('--protocol',choices=('after_world_commit',),required=True)
+    fault_eval.add_argument('--paired',action='store_true',help='Concurrent simple/full recovery from one captured full-mode source prefix')
+    fault_eval.add_argument('--max-generated-tokens',type=int,help='Required paired global cap, including three conservative phase reservations')
     args = parser.parse_args()
     if args.command == 'fault-evaluate':
+        if args.paired:
+            if args.max_generated_tokens is None:parser.error('--paired requires --max-generated-tokens')
+            from officegym.eval.fault_episode import evaluate_fault_pair_instance
+            result=evaluate_fault_pair_instance(args.instance,args.config,args.out,max_generated_tokens=args.max_generated_tokens)
+            print(json.dumps(result,indent=2))
+            if result.get('source_result',{}).get('infrastructure_error') is not None or any(r.get('infrastructure_error') is not None for r in result['branches'].values()):raise SystemExit(1)
+            if not result['pair_complete'] or not result['source_fault']['fault_injected']:raise SystemExit(2)
+            return
+        if args.max_generated_tokens is not None:parser.error('--max-generated-tokens in fault-evaluate requires --paired')
         from officegym.eval.fault_episode import evaluate_fault_instance
         result=evaluate_fault_instance(args.instance,args.config,args.out)
         print(json.dumps(result,indent=2))

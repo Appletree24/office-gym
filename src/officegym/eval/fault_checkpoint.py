@@ -71,6 +71,16 @@ def branch_checkpoint(source,out):
     with (root/'harness.jsonl').open('xb') as stream:stream.write((source/'harness.jsonl').read_bytes())
     if boundary(root)!=record['boundary']:raise ValueError('cloned fault boundary differs')
     if verify_checkpoint(source)!=record:raise ValueError('source fault checkpoint changed while branching')
-    binding=dict(source_checkpoint=str(source),source_checkpoint_sha256=digest(source/'checkpoint.json'),boundary=record['boundary'],scope='Independent database clone at the same commit boundary; no recovery mode or outcome inferred.')
+    binding=dict(source_checkpoint=str(source),source_checkpoint_sha256=digest(source/'checkpoint.json'),files_sha256={name:digest(root/name) for name in FILES},boundary=record['boundary'],scope='Independent database clone at the same commit boundary; no recovery mode or outcome inferred.')
     with (root/'branch.json').open('x') as stream:stream.write(canonical(binding)+'\n')
+    return binding
+
+
+def verify_branch(root,source):
+    root,source=Path(root).resolve(),Path(source).resolve();record=verify_checkpoint(source)
+    binding=json.loads((root/'branch.json').read_text())
+    if binding.get('source_checkpoint')!=str(source) or binding.get('source_checkpoint_sha256')!=digest(source/'checkpoint.json'):
+        raise ValueError('recovery branch belongs to a different checkpoint')
+    if binding.get('files_sha256')!={name:digest(root/name) for name in FILES} or binding.get('boundary')!=record['boundary'] or boundary(root)!=record['boundary']:
+        raise ValueError('recovery branch start contents changed')
     return binding

@@ -84,16 +84,25 @@ class Harness:
         self.wall_origin = None
 
     def restore(self):
+        return self._restore_from_trace(self.trace_path,'full' if self.journal else 'simple')
+
+    def restore_fault_checkpoint(self,checkpoint):
+        from .fault_restore import restore_fault_checkpoint
+        return restore_fault_checkpoint(self,checkpoint)
+
+    def _restore_from_trace(self,trace_path,source_mode):
         if self.restored:
             raise ValueError('context already restored')
-        rows = [json.loads(line) for line in Path(self.trace_path).read_text().splitlines() if line.strip()]
+        rows = [json.loads(line) for line in Path(trace_path).read_text().splitlines() if line.strip()]
         if not rows or rows[0].get('kind')!='run_header' or rows[0]['task_sha256']!=hashlib.sha256(canonical(self.task).encode()).hexdigest() or rows[0]['budget']!=asdict(self.budget):
             raise ValueError('trace task or budget does not match resumed run')
         if rows[0].get('harness_version')!=HARNESS_VERSION:
             raise ValueError('cannot resume a different harness version')
         if rows[0].get('model_version') != getattr(self.policy,'model_version',None):
             raise ValueError('cannot change model version while resuming')
-        if rows[0]['mode'] != ('full' if self.journal else 'simple'):
+        if rows[0].get('fault_branch'):
+            raise ValueError('fault branch continuation needs its inherited-budget protocol; ordinary restore is forbidden')
+        if rows[0]['mode'] != source_mode:
             raise ValueError('cannot change harness mode while resuming')
         anchor=rows[0].get('wall_clock',{})
         origin=anchor.get('monotonic_origin')

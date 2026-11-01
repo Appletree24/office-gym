@@ -29,3 +29,20 @@ class FaultEpisodeTests(unittest.TestCase):
             with self.subTest(code=code),patch('sys.argv',args),patch('officegym.eval.fault_episode.evaluate_fault_instance',return_value=result) as execute,contextlib.redirect_stdout(io.StringIO()),self.assertRaises(SystemExit) as error:
                 main()
             self.assertEqual(error.exception.code,code);execute.assert_called_once_with('instance','config','out')
+
+    def test_paired_global_cap_is_required_before_any_output_or_job(self):
+        from officegym.eval.fault_episode import evaluate_fault_pair_instance
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);config=root/'config.json'
+            config.write_text(json.dumps(dict(endpoint='http://127.0.0.1:1/v1/chat/completions',model='fixture',model_version='fixture',tokenizer_path=str(root),tokenizer_revision='fixture',mode='full',budget=dict(tool_calls=24,generated_tokens=8192,wall_seconds=20,parse_retries=2),max_context_tokens=12288,max_output_tokens=1024)))
+            for cap in (None,True,0,24575):
+                with self.subTest(cap=cap),self.assertRaisesRegex(ValueError,'global token cap'):evaluate_fault_pair_instance('missing',config,root/'run',max_generated_tokens=cap)
+                self.assertFalse((root/'run').exists())
+
+    def test_paired_cli_cannot_dispatch_without_explicit_global_cap(self):
+        import io,contextlib
+        from unittest.mock import patch
+        from officegym.cli import main
+        args=['officegym','fault-evaluate','--instance','instance','--config','config','--out','out','--protocol','after_world_commit','--paired']
+        with patch('sys.argv',args),patch('officegym.eval.fault_episode.evaluate_fault_pair_instance') as execute,contextlib.redirect_stderr(io.StringIO()),self.assertRaises(SystemExit) as error:main()
+        self.assertEqual(error.exception.code,2);execute.assert_not_called()
