@@ -80,7 +80,15 @@ def main():
     run_plan.add_argument('--out',required=True)
     run_plan.add_argument('--priority',choices=('P0','P1'),default='P0')
     run_plan.add_argument('--splits',default='id_test,combo_test,unseen_test')
+    operator = commands.add_parser('check-operator-inputs',help='Check teacher and total resource choices without reading credentials or launching jobs')
+    operator.add_argument('--config',required=True)
     args = parser.parse_args()
+    if args.command == 'check-operator-inputs':
+        from officegym.training.operator_inputs import check_operator_inputs
+        report=check_operator_inputs(args.config)
+        print(json.dumps(report,indent=2))
+        if not report['operator_inputs_ready']:raise SystemExit(2)
+        return
     if args.command == 'freeze-run-plan':
         from pathlib import Path
         from officegym.tasks.validate import validate_dataset
