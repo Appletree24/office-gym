@@ -91,3 +91,26 @@ class CreationScopeTests(unittest.TestCase):
             grade=evaluate(root/'final.sqlite',spec,source/'initial_world.sqlite')
             self.assertIn('unrelated_data_mutation',grade['hard_violations'])
             world.close()
+
+
+    def test_task_todo_title_does_not_authorize_extra_wrong_owner_or_due_date(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);manifest=generate(root/'tasks',templates=['T08'],count_per_template=1)
+            source=root/'tasks'/manifest['instances'][0]['path'];public=json.loads((source/'task.json').read_text())['public_task'];spec={**public,**json.loads((source/'private_spec.json').read_text())}
+            for fault in ('legal','owner','due'):
+                with self.subTest(fault=fault):
+                    path=root/(fault+'.sqlite');world=clone_world(source/'initial_world.sqlite',path);client=Dispatcher(world)
+                    def call(name,args,operation=None):
+                        result=client.call(name,args,operation)
+                        if name=='todos.create' and result['ok'] and fault!='legal':
+                            extra=dict(args)
+                            if fault=='owner':extra['assignee_id']=public['principal_id']
+                            else:extra['due_at']+=1
+                            self.assertTrue(client.call(name,extra,'extra-'+fault)['ok'])
+                        return result
+                    solve(public,call);grade=evaluate(path,spec,source/'initial_world.sqlite')
+                    if fault=='legal':self.assertTrue(grade['full_success'],grade)
+                    else:
+                        self.assertTrue(grade['outcome_ok']);self.assertIn('unrelated_data_mutation',grade['hard_violations'])
+                        self.assertTrue(any(item['table']=='todos' and item['kind']=='unrequested_creation' for item in grade['unexpected_mutations']))
+                    world.close()
