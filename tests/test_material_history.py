@@ -14,3 +14,14 @@ class MaterialHistoryTests(unittest.TestCase):
         self.assertEqual(required_refs_at_send(db,spec,10,500),[{'document_id':'static','version':3},{'document_id':'agenda','version':1}])
         self.assertEqual(required_refs_at_send(db,spec,21,500),[{'document_id':'static','version':3},{'document_id':'agenda','version':2}])
         db.close()
+
+    def test_document_creation_boundary_and_static_refs_are_independent(self):
+        db=sqlite3.connect(':memory:');db.row_factory=sqlite3.Row
+        db.executescript('CREATE TABLE documents(document_id TEXT,version INTEGER,created_at INTEGER);CREATE TABLE event_log(seq INTEGER,object_type TEXT,object_id TEXT,after_json TEXT,details_json TEXT);')
+        db.execute('INSERT INTO documents VALUES (?,?,?)',('agenda',1,100))
+        db.execute('INSERT INTO event_log VALUES (?,?,?,?,?)',(5,'document','agenda',json.dumps({'version':1}),'{}'))
+        static={'document_id':'fixed','version':7};spec={'track_document_ids':['agenda'],'required_document_refs':[static]}
+        self.assertEqual(required_refs_at_send(db,spec,5,500),[static,{'document_id':'agenda','version':None}])
+        self.assertEqual(required_refs_at_send(db,spec,6,500),[static,{'document_id':'agenda','version':1}])
+        self.assertEqual(required_refs_at_send(db,{'required_document_refs':[static]},6,500),[static])
+        db.close()
