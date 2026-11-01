@@ -187,3 +187,6 @@ Independent raw ledger/SQL checks are in independent_boundary_audit.json; indepe
 
 
 2026-11-01 version-evidence preservation: scripts/export_versions.py now exclusively creates its destination and refuses to overwrite an existing version manifest. version_preservation_probe_v1 retains the original manifest, a rejected second invocation, stderr and matching before/after SHA256 values; the CLI regression test also verifies unchanged bytes after failure. Choose a new --out path for each snapshot. No business runtime, dataset, scoring or model-job behavior changes. Formal teacher/training/scientific acceptance remains incomplete.
+
+
+2026-11-01 generation-argument abbreviation fix: argparse previously accepted --te=T01 as --templates, bypassing the config/template mixed-option guard and silently invoking the full assembler. The generate subparser now requires complete option names (allow_abbrev=False). Targeted CLI tests cover exact, equals-form and abbreviated template/depth/holdout options; the actual subprocess probe in generate_abbreviation_probe_v1 confirms exit2 before an output directory is created. Documented complete commands retain their existing behavior. No dataset or model job was started by this probe; formal experiment gates remain incomplete.

@@ -21,7 +21,7 @@ def main():
     cases.add_argument('--out',required=True)
     dataset = commands.add_parser('validate-dataset',help='Validate concrete dataset files and reference artifacts')
     dataset.add_argument('--manifest',required=True)
-    generate = commands.add_parser('generate',help='Generate implemented templates with verified reference artifacts')
+    generate = commands.add_parser('generate',allow_abbrev=False,help='Generate implemented templates with verified reference artifacts')
     generate.add_argument('--out',required=True)
     generate.add_argument('--config',help='Assemble the full configured development distribution')
     generate.add_argument('--templates',default='T01,T02,T03,T04,T05,T06,T07,T08')

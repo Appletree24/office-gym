@@ -12,7 +12,7 @@ class GenerateContractTests(unittest.TestCase):
         assemble.assert_called_once_with('config.json','new-output')
 
     def test_config_never_silently_ignores_template_overrides(self):
-        for option in (['--split','train'],['--seed=100000'],['--heldout-combo']):
+        for option in (['--split','train'],['--seed=100000'],['--heldout-combo'],['--te=T01'],['--dep=2'],['--heldout-comb']):
             with patch('sys.argv',['officegym','generate','--config','config.json','--out','new-output',*option]),contextlib.redirect_stderr(io.StringIO()),self.assertRaises(SystemExit) as error:
                 main()
             self.assertEqual(error.exception.code,2)
