@@ -20,10 +20,6 @@ class ProposalReferenceTests(unittest.TestCase):
                 client=Dispatcher(world)
                 try:
                     with world.db:client.set_meta('public_task',task)
-                    if bounded and depth==2 and perturbation==2:
-                        with self.assertRaises(RuntimeError):solve(task,client.call,material_observations=False,public_wakeup_heuristic=True)
-                        self.assertEqual(client.meta('tool_calls'),24);self.assertFalse(client.meta('finished'))
-                        continue
                     solve(task,client.call,material_observations=not bounded,public_wakeup_heuristic=bounded)
                     grade=evaluate(root/'final.sqlite',{**task,**json.loads((source/'private_spec.json').read_text())},source/'initial_world.sqlite')
                     self.assertTrue(grade['full_success'],grade)

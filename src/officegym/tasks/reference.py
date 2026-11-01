@@ -170,9 +170,32 @@ def solve(task, call, *, material_observations=True, handoff_observations=True, 
                     owner_changes.append(facts)
         return events
     if task.get('monitor_until') is not None:
+        if public_wakeup_heuristic:
+            for _ in range(40):
+                if sim_time>=task['monitor_until']:break
+                invoke('clock.wait',{'until':task['monitor_until']})
+            else:raise RuntimeError('public monitoring wait budget exhausted')
         for _ in range(40):
             events = poll_events()
+            handled=set()
+            if public_wakeup_heuristic:
+                patch={};refs=json.loads(meeting['document_refs_json'])
+                for event in events['items']:
+                    facts=json.loads(event['details_json'])
+                    if event['kind']=='MeetingRescheduleRequested' and facts.get('meeting_id')==meeting['id']:
+                        patch.update(start_at=facts['start_at'],end_at=facts['end_at']);handled.add(event['seq'])
+                    elif event['kind']=='DocumentVersionPublished' and facts['document_id'] in task.get('track_document_ids',[]):
+                        ref={'document_id':facts['document_id'],'version':facts['version']}
+                        refs=[item for item in refs if item['document_id']!=ref['document_id']]+[ref]
+                        patch['document_refs']=refs;handled.add(event['seq'])
+                    elif event['kind']=='AttendeeChanged' and facts.get('meeting_id')==meeting['id']:
+                        raise RuntimeError('public coalescing heuristic does not support attendee changes')
+                if patch:
+                    meeting=invoke('calendar.update',dict(meeting_id=meeting['id'],expected_version=meeting['version'],patch=patch),True)
+                    approval_id=confirm(meeting)
+                    invoke('mail.send',dict(recipient_ids=people,kind='reschedule',subject=meeting['title'],body='',meeting_id=meeting['id'],meeting_version=meeting['version'],approval_id=approval_id,attachment_refs=task.get('required_attachment_refs',[])),True)
             for event in events['items']:
+                if event['seq'] in handled:continue
                 if event['kind'] not in ('MeetingRescheduleRequested','AttendeeChanged','DocumentVersionPublished'):
                     continue
                 facts = json.loads(event['details_json'])
