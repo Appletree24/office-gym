@@ -229,3 +229,14 @@ PYTHONPATH=src .venv/bin/python -m officegym.training.teacher_gateway --config /
 ```
 
 命令只读打开原账本，通过 SQLite backup 导出已提交的一致视图（含 WAL 中的提交），保存 `ledger.sqlite`、`pricing_policy.json` 及含文件 SHA256 的 `report.json`。输出目录必须全新；源账本缺失或配置指纹不符会拒绝执行。快照保留请求哈希、已确认 token usage、错误类型和未知预留，不含请求正文或密钥值。它用于核对声明价格下的消耗；仅有快照不能证明真实模型调用、商业价格或账单。后续调用不会改变已导出的快照。
+
+
+首批 teacher 采样按手册先选择 40 个训练任务。离线选样无需模型服务、密钥或费用预算：
+
+```bash
+PYTHONPATH=src .venv/bin/python -m officegym.training.pilot --manifest artifacts/dataset_development_v10/manifest.json --out artifacts/NEW_TEACHER_PILOT
+```
+
+选样器先按模板轮询，再在模板内按深度／扰动层轮询，用显式 seed 与任务 ID 的 SHA256 确定层内顺序。它只读取训练任务身份及层信息，不以参考成绩或长度筛选，不保证有限名额覆盖所有层。`selection.json` 保存任务清单、选择规则、seed、模板计数和源 manifest 哈希；当前 40 任务计划及独立核对位于 `artifacts/teacher_pilot_selection_v1`，T01–T08 各 5 个。此计划基于尚未冻结的开发数据，不表示数据已获正式准入。
+
+`collect-teacher` CLI 默认 `--max-tasks 40 --selection-seed officegym-teacher-pilot-v1`，按同一规则选样，在首次调用模型前保存完整选择清单及其哈希。扩大采样需显式提高 `--max-tasks`，仍受必填的 episode／生成 token 预算和每任务最多三次尝试限制；较小预算可能只执行计划的一部分，汇总分别记录 selected_tasks 和 attempted_tasks。使用相同 manifest、seed 和任务上限可复现离线计划。底层 `collect()` 未传 max_tasks 时保留全训练池行为，供现有显式预算的 RS-SFT 调用使用。真实采样仍须先完成教师配置与实际费用预算；离线计划不提供通过率或费用估计。

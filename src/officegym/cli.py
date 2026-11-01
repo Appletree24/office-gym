@@ -53,6 +53,8 @@ def main():
     teacher.add_argument('--out',required=True)
     teacher.add_argument('--split',choices=['train'],default='train')
     teacher.add_argument('--max-attempts-per-task',type=int,default=3)
+    teacher.add_argument('--max-tasks',type=int,default=40)
+    teacher.add_argument('--selection-seed',default='officegym-teacher-pilot-v1')
     teacher.add_argument('--max-episodes',type=int,required=True)
     teacher.add_argument('--max-generated-tokens',type=int,required=True)
     batch = commands.add_parser('evaluate',help='Evaluate selected runs from a hashed plan')
@@ -84,7 +86,7 @@ def main():
         print(json.dumps(evaluate_batch(args.manifest,args.plan,args.config,args.out,group=args.experiment,split=args.split,max_runs=args.max_runs,max_generated_tokens=args.max_generated_tokens,resume=args.resume),indent=2))
     if args.command == 'collect-teacher':
         from officegym.training.collect import collect
-        print(json.dumps(collect(args.manifest,args.config,args.out,max_attempts_per_task=args.max_attempts_per_task,max_episodes=args.max_episodes,max_generated_tokens=args.max_generated_tokens),indent=2))
+        print(json.dumps(collect(args.manifest,args.config,args.out,max_attempts_per_task=args.max_attempts_per_task,max_episodes=args.max_episodes,max_generated_tokens=args.max_generated_tokens,max_tasks=args.max_tasks,selection_seed=args.selection_seed),indent=2))
     if args.command == 'build-sft':
         from officegym.training.build import build_from_files
         print(json.dumps(build_from_files(args.runs,args.out,args.tokenizer,args.revision,args.max_length),indent=2))

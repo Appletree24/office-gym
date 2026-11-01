@@ -9,9 +9,10 @@ from officegym.env.world import canonical
 from officegym.eval.artifacts import write_json
 from officegym.tasks.validate import validate_dataset
 from officegym.eval.configured import evaluate_instance,validate_config
+from .pilot import select_training_tasks,selection_record,DEFAULT_SEED
 
 
-def collect(manifest_path,config_path,out,*,max_attempts_per_task,max_episodes,max_generated_tokens,run=evaluate_instance):
+def collect(manifest_path,config_path,out,*,max_attempts_per_task,max_episodes,max_generated_tokens,run=evaluate_instance,max_tasks=None,selection_seed=DEFAULT_SEED):
     if any(type(value) is not int or value<1 for value in (max_attempts_per_task,max_episodes,max_generated_tokens)) or max_attempts_per_task>3:
         raise ValueError('explicit finite collection budgets and at most three attempts required')
     manifest_path,config_path = Path(manifest_path).resolve(),Path(config_path).resolve()
@@ -20,6 +21,8 @@ def collect(manifest_path,config_path,out,*,max_attempts_per_task,max_episodes,m
     entries = [entry for entry in manifest['instances'] if entry['split']=='train']
     if not entries:
         raise ValueError('no training instances')
+    if max_tasks is not None:
+        entries=select_training_tasks(manifest,max_tasks,selection_seed)
     config = json.loads(config_path.read_text())
     validate_config(config)
     if config['mode']!='full':
@@ -27,9 +30,11 @@ def collect(manifest_path,config_path,out,*,max_attempts_per_task,max_episodes,m
     episode_cap = config['budget']['generated_tokens']
     root = Path(out)
     root.mkdir(parents=True,exist_ok=False)
+    selection=selection_record(manifest,entries,hashlib.sha256(manifest_path.read_bytes()).hexdigest(),max_tasks,selection_seed) if max_tasks is not None else dict(schema='officegym-teacher-selection-v1',selection_method='all-training-tasks-manifest-order',selected_tasks=len(entries),source_manifest_sha256=hashlib.sha256(manifest_path.read_bytes()).hexdigest(),tasks=[dict(instance_id=row['instance_id'],path=row['path'],split=row['split']) for row in entries])
+    write_json(root/'selection.json',selection)
     frozen_config=root/'resolved_sampling_config.json'
     write_json(frozen_config,config)
-    write_json(root/'source.json',{'dataset_manifest':str(manifest_path),'dataset_manifest_sha256':hashlib.sha256(manifest_path.read_bytes()).hexdigest(),'config_sha256':hashlib.sha256(frozen_config.read_bytes()).hexdigest()})
+    write_json(root/'source.json',{'dataset_manifest':str(manifest_path),'dataset_manifest_sha256':hashlib.sha256(manifest_path.read_bytes()).hexdigest(),'config_sha256':hashlib.sha256(frozen_config.read_bytes()).hexdigest(),'selection_sha256':hashlib.sha256((root/'selection.json').read_bytes()).hexdigest()})
     attempts,successes = [],[]
     reserved = observed = 0
     stopped = False
@@ -82,7 +87,7 @@ def collect(manifest_path,config_path,out,*,max_attempts_per_task,max_episodes,m
     (root/'successful_runs.json').write_text(canonical(successes)+'\n')
     resource_totals={field:{'reported_total':sum(row[field] for row in attempts if row[field] is not None),'unknown_attempts':sum(row[field] is None for row in attempts)} for field in ('reported_generated_tokens','reported_input_tokens','reported_tool_calls','reported_wall_seconds')}
     summary = dict(resources=resource_totals,usage_complete=all(value['unknown_attempts']==0 for value in resource_totals.values()),collector_wall_seconds=sum(row['collector_wall_seconds'] for row in attempts),generation_cap_overruns=sum(row['generation_cap_overrun'] for row in attempts),gpu_hours=None,api_cost_usd=None,attempts=len(attempts),successful_tasks=len(successes),reported_generated_tokens=observed,reserved_generated_tokens=reserved,
-                   budget_stop=stopped,max_episodes=max_episodes,max_generated_tokens=max_generated_tokens,max_attempts_per_task=max_attempts_per_task,
+                   selected_tasks=len(entries),attempted_tasks=len({row['instance_id'] for row in attempts}),max_tasks=max_tasks,budget_stop=stopped,max_episodes=max_episodes,max_generated_tokens=max_generated_tokens,max_attempts_per_task=max_attempts_per_task,
                    note='Reservations include unused capacity and unknown failure usage, not measured cost. Reported totals are lower bounds when unknown_attempts is positive; null GPU/API cost is unmeasured.')
     write_json(root/'summary.json',summary)
     return summary
