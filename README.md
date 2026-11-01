@@ -290,3 +290,8 @@ artifacts/runtime_tokenizer_admission_probe_v1 用真实锁定 tokenizer 对五�
 SFT／RS-SFT 正式导出现在还要求逐步优化器调用证据。生产训练与原生回调探针共用回调：优化器调用前检查所有可用可训练梯度的有限性，以 FP64 累加平方范数，并记录梯度 tensor／元素数；调用返回后检查 Accelerate 的 optimizer_step_was_skipped，记录配对完成事件，再核对 Trainer global_step。非有限／缺失／不支持的梯度在调用前拒绝，跳步保留失败证据并停止；有限零梯度可以记录，不据此宣称学习提升。
 
 导出器只读取源 checkpoint 事件之前的冻结前缀，要求从 1 到声明 step 的全部尝试／完成事件按序匹配，拒绝跳步、重复、悬空尝试及 checkpoint 前的训练失败。正数 step、loss 日志或权重文件不能单独证明完成更新。旧的工程探针仍保留，缺这些证据的记录不能补写成正式训练。`artifacts/sft_update_native_cpu_fixture_v1` 仅以 1,016 参数随机微型 Transformer 验证真实 HF Trainer 两次调用及 NaN 拒绝，非 OfficeGym 正式训练，未加载预训练权重或 teacher 数据。
+
+
+当前导出评分器反例集扩展为 26 例：8 个合法、18 个负例，最新输出在 artifacts/grader_cases_v6 和 artifacts/grader_report_v7。新增七个确认授权案例覆盖无期限、发送在到期前一秒／恰好到期／到期后一秒、错误确认者、发送后才批准及旧版本批准。到期边界用显式 offline_snapshot_mutation 记录 expires_at 的修改位置，因为模型没有修改确认有效期的工具；其余事件通过真实业务工具和调度器执行。独立 SQL oracle 核对了实际 grant/send/expiry 时间、确认者、版本及 digest。
+
+run_suite 的 summary.json 新增 category_counts，逐类记录合法／负例数量、已知负例检出、合法误拒和标签不一致；确认授权变体合并在 approval_authorization 类。当前 26 例标签均匹配，18/18 已知负例被拒绝、0/8 合法误拒。这是软件反例覆盖，不是模型发现的 reward hacking 或全面漏洞检出率；其他类别仍需继续增加合法／错误变体。
