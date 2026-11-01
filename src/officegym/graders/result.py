@@ -4,6 +4,7 @@ import json
 import sqlite3
 from pathlib import Path
 from .replies import availability_replies
+from .calendar_history import conflicts_at_send
 from .creation_scope import unexpected_creations
 from .operations import reconcile
 from .completion import GRADE_SCHEMA_VERSION,world_completion
@@ -45,6 +46,8 @@ def evaluate(world_path, spec, initial_path=None):
             if send_event is None:
                 severe.append('invitation_evidence_missing')
             else:
+                if conflicts_at_send(db,snapshot,send_event['seq'],invitation['sent_at']):
+                    severe.append('invitation_calendar_conflict')
                 expected_members=set(required)
                 for change in attendee_records:
                     if change['seq']>=send_event['seq']:break
