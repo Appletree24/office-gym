@@ -1,6 +1,7 @@
 """Export measured planned runs; software probes are excluded from formal statistics."""
 from officegym.env.world import canonical
 from .context_metrics import context_metrics
+from .grading import require_recorded_grade
 import hashlib
 import json
 import sqlite3
@@ -54,7 +55,11 @@ def result_row(run_dir,plan_row,dataset_manifest):
     config = json.loads((root/'resolved_eval_config.json').read_text())
     budget = json.loads((root/'budget.json').read_text())
     budget_hash = evaluation_budget_hash(budget,config)
-    termination,grade = result['termination'],result['grade']
+    source=manifest_path.parent/entry['path']
+    task=json.loads((source/'task.json').read_text())
+    private=json.loads((source/'private_spec.json').read_text())
+    grade,_=require_recorded_grade(root/'world.sqlite',{**task['public_task'],**private},source/'initial_world.sqlite',result)
+    termination=result['termination']
     if any(grade[field]!=result['versions'][field] for field in ('eval_grader_version','reward_version')):
         raise ValueError('result grade differs from recorded scoring versions')
     infrastructure = bool(result.get('infrastructure_error')) or termination['state']=='INFRA_ERROR'
@@ -62,6 +67,7 @@ def result_row(run_dir,plan_row,dataset_manifest):
     row = dict(plan_row,env_version=result['versions']['env_version'],eval_grader_version=result['versions']['eval_grader_version'],reward_version=result['versions']['reward_version'],harness_version=result['versions']['harness_version'],
                dataset_manifest_hash=hashlib.sha256(manifest_path.read_bytes()).hexdigest(),budget_hash=budget_hash,
                success=bool(grade['full_success']) and not infrastructure,infra_error=infrastructure,fault_injected=False,recovery_started=False,
+               grade_schema_version=grade['grade_schema_version'],terminated_reason=grade['terminated_reason'],termination_reason_source=grade['termination_reason_source'],completion_checks=grade['completion_checks'],
                duplicate_effects=duplicates,premature_completion=done and not grade['outcome_ok'],declared_done=done,
                generated_tokens=termination.get('generated_tokens',0),input_tokens=termination.get('input_tokens',0),tool_calls=final['tool_calls'],
                wall_seconds=result['runner_wall_seconds'],sim_seconds=max(0,final['sim_time']-initial['sim_time']),
