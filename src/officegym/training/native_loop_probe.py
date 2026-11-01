@@ -50,12 +50,12 @@ async def run(instance,model,out):
             step=self.backend_steps[min(len(self.calls)-1,len(self.backend_steps)-1)] if self.backend_steps is not None else None
             fields=dict(global_steps=step,min_global_steps=step,max_global_steps=step) if step is not None else {}
             return TokenOutput(token_ids=ids,log_probs=probs,extra_fields=fields)
-    async def case(name,texts,*,response=4096,prompt=8192,context=8192,barrier=None,reject=False,cap_outputs=False,assistant_turns=30,user_turns=30,actor_step=None,backend_steps=None,version_reject=False,parse_retries=2):
+    async def case(name,texts,*,response=4096,prompt=8192,context=8192,barrier=None,reject=False,cap_outputs=False,assistant_turns=30,user_turns=30,actor_step=None,backend_steps=None,version_reject=False,parse_retries=2,generation_budget=512):
         case_root=root/name;case_root.mkdir()
         config=OmegaConf.create(dict(data={},actor_rollout_ref=dict(rollout=dict(prompt_length=prompt,response_length=response,full_determinism=False,multi_turn=dict(max_user_turns=user_turns,max_assistant_turns=assistant_turns,max_parallel_calls=1,max_tool_response_length=20000,tool_response_truncate_side='right',format='hermes')))))
         server=Server(texts,barrier,cap_outputs,backend_steps)
         loop=OfficeGymAgentLoop(trainer_config=DictConfigWrap(config),server_manager=server,tokenizer=tokenizer,processor=None,dataset_cls=object,data_config=DictConfigWrap(config.data),hf_model_type='qwen3',tools=ToolListWrap(tools))
-        trusted=dict(parse_retries=parse_retries,actor_version='authored-native-protocol-fixture',max_generation_tokens=512,max_context_tokens=context,token_ledger_path=str(case_root/'tokens.sqlite'),global_rollout_token_limit=512,instance_dir=str(instance),artifact_root=str(case_root/'trajectories'))
+        trusted=dict(parse_retries=parse_retries,actor_version='authored-native-protocol-fixture',max_generation_tokens=generation_budget,max_context_tokens=context,token_ledger_path=str(case_root/'tokens.sqlite'),global_rollout_token_limit=512,instance_dir=str(instance),artifact_root=str(case_root/'trajectories'))
         if actor_step is not None:
             from .actor_version import bind_actor_metadata
             trusted=bind_actor_metadata(trusted,trusted['actor_version'],actor_step)
@@ -94,7 +94,7 @@ async def run(instance,model,out):
         assert terminal['original_token_ids']==output.response_ids and terminal['response_mask']==output.response_mask
         assert terminal['original_logprobs']==output.response_logprobs
         with sqlite3.connect(case_root/'tokens.sqlite') as db:
-            assert db.execute('SELECT reserved,observed FROM reservations').fetchall()==[(512,len(generated))]
+            assert db.execute('SELECT reserved,observed FROM reservations').fetchall()==[(generation_budget,len(generated))]
         return dict(case=name,generation_requests=len(server.calls),generated_tokens=len(generated),environment_tokens=len(output.response_ids)-sum(output.response_mask),termination_reason=terminal['termination_reason'],reward=terminal['reward'],final_state_hash=terminal['final_state_hash'])
     barrier=dict(arrivals=0,event=asyncio.Event(),paths=set())
     def patch(goal):return '<tool_call>\n'+json.dumps(dict(name='board.patch',arguments=dict(expected_version=1,patch=dict(goal=goal))),ensure_ascii=False)+'\n</tool_call><|im_end|>'
@@ -141,6 +141,19 @@ async def run(instance,model,out):
     assert rows[-1]['generation_requests']==1 and rows[-1]['termination_reason']=='parse_error'
     rows.append(await case('parse_feedback_response_limit',['Not a tool call<|im_end|>'],response=20))
     assert rows[-1]['generation_requests']==1 and rows[-1]['termination_reason']=='response_limit'
+    error_call=call.replace('board.read','unknown.tool')
+    rows.append(await case('parse_reset_on_tool_error',['Not a tool call<|im_end|>',error_call,'Still invalid<|im_end|>','Still invalid<|im_end|>',finish]))
+    assert rows[-1]['generation_requests']==5 and rows[-1]['termination_reason']=='policy_terminated'
+    invalid='Not a tool call<|im_end|>'
+    invalid_length=len(tokenizer.encode(invalid,add_special_tokens=False))
+    rows.append(await case('parse_feedback_context_limit',[invalid],context=initial+invalid_length+1))
+    assert rows[-1]['generation_requests']==1 and rows[-1]['termination_reason']=='generation_budget'
+    rows.append(await case('parse_assistant_turn_limit',[invalid],assistant_turns=1))
+    assert rows[-1]['generation_requests']==1 and rows[-1]['termination_reason']=='agent_turn_limit'
+    rows.append(await case('parse_user_turn_limit',[invalid],user_turns=1))
+    assert rows[-1]['generation_requests']==1 and rows[-1]['termination_reason']=='agent_turn_limit'
+    rows.append(await case('parse_generation_limit',[invalid],generation_budget=3,cap_outputs=True))
+    assert rows[-1]['generation_requests']==1 and rows[-1]['termination_reason']=='generation_budget' and rows[-1]['generated_tokens']==3
     assert not REGISTRY.entries
     assert hashlib.sha256((instance/'initial_world.sqlite').read_bytes()).hexdigest()==before
     local_hashes={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in (Path(__file__),Path(__file__).with_name('verl_loop.py'),Path(__file__).with_name('worker_plugins.py'),Path(__file__).with_name('actor_version.py'))}
