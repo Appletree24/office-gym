@@ -43,3 +43,23 @@ class ControlledNuisanceTests(unittest.TestCase):
             (root/'tasks'/'manifest.json').write_text(json.dumps(manifest))
             with self.assertRaisesRegex(ValueError,'initial noise/document/busy state'):
                 validate_dataset(root/'tasks'/'manifest.json')
+
+    def test_rehashed_weakened_proposal_contract_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            manifest=generate(root/'tasks',templates=['T04'],count_per_template=1,depth_level=2,perturbation_level=1)
+            entry=manifest['instances'][0];source=root/'tasks'/entry['path']/'task.json'
+            original=json.loads(source.read_text())
+            for key,value in [('collect_availability',False),('proposal_bound_availability',1),
+                              ('approval_after_availability',False),('requires_approval',False)]:
+                with self.subTest(key=key):
+                    task=json.loads(json.dumps(original));task['public_task'][key]=value
+                    source.write_text(json.dumps(task))
+                    initial=source.parent/'initial_world.sqlite'
+                    with sqlite3.connect(initial) as db:
+                        db.execute("UPDATE meta SET value_json=? WHERE key='public_task'",(json.dumps(task['public_task']),))
+                    entry['files_sha256']['initial_world.sqlite']=hashlib.sha256(initial.read_bytes()).hexdigest()
+                    entry['files_sha256']['task.json']=hashlib.sha256(source.read_bytes()).hexdigest()
+                    (root/'tasks'/'manifest.json').write_text(json.dumps(manifest))
+                    with self.assertRaisesRegex(ValueError,'proposal/reply/approval semantics'):
+                        validate_dataset(root/'tasks'/'manifest.json')

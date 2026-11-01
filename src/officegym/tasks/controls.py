@@ -23,6 +23,13 @@ def validate_controls(task,db):
     if task['template_id']!='T04' or task['dependency_dag']['nodes'].count('plan')!=PROFILE['workflow_count']:
         raise ValueError('controlled scan workflow width/template differs')
     public=task['public_task']
+    scoped=task['depth_level']>=2
+    if (any(type(public.get(key,False)) is not bool or public.get(key,False)!=scoped
+            for key in ('collect_availability','proposal_bound_availability','approval_after_availability'))
+            or public.get('requires_approval') is not True
+            or ('collect_replies' in task['dependency_dag']['nodes'])!=scoped
+            or 'confirm' not in task['dependency_dag']['nodes']):
+        raise ValueError('controlled scan proposal/reply/approval semantics differ from depth contract')
     initial_time=json.loads(db.execute("SELECT value_json FROM meta WHERE key='sim_time'").fetchone()[0])
     if len(public['required_participant_ids'])!=PROFILE['required_participants'] or public.get('message_cap_per_recipient')!=PROFILE['message_cap_per_recipient'] or public['deadline_at']-initial_time!=PROFILE['deadline_offset_seconds'] or public.get('monitor_until',0)-initial_time!=PROFILE['monitor_offset_seconds'] or [value-initial_time for value in public['allowed_window_utc']]!=PROFILE['allowed_window_offsets_seconds']:
         raise ValueError('controlled scan timing/participant/message constraints differ')
