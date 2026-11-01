@@ -1,4 +1,4 @@
-"""Independent scope checks for newly persisted document versions and todos."""
+"""Independent scope checks for newly persisted meetings, document versions and todos."""
 import json
 
 
@@ -11,6 +11,12 @@ def environmental_creation(db,object_type,identity,current):
 
 def unexpected_creations(db,initial,spec):
     unexpected=[]
+    old_meetings={row['id'] for row in initial.execute('SELECT id FROM meetings')}
+    allowed_meetings=set(spec.get('allowed_mutations',{}).get('meetings',[]))
+    for row in db.execute('SELECT * FROM meetings ORDER BY id'):
+        scoped=row['organizer_id']==spec['principal_id'] and ('title' not in spec or row['title']==spec['title'])
+        if row['id'] not in old_meetings and row['id'] not in allowed_meetings and not scoped and not environmental_creation(db,'meeting',row['id'],row):
+            unexpected.append(dict(table='meetings',id=row['id'],kind='unrequested_creation'))
     old_documents={(row['document_id'],row['version']) for row in initial.execute('SELECT document_id,version FROM documents')}
     allowed_documents=set(spec.get('allowed_mutations',{}).get('documents',[]))
     for row in db.execute('SELECT * FROM documents ORDER BY document_id,version'):

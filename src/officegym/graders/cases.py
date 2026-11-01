@@ -13,6 +13,7 @@ def generate_cases(out):
     designs += [('legal_idempotent_retry',True,[]),('deleted_wrong_send_message',False,['operation_evidence_inconsistent']),('deleted_wrong_send_outbox',False,['operation_evidence_inconsistent']),('deleted_wrong_send_both',False,['operation_evidence_inconsistent']),('deadline_before',True,[]),('deadline_at',True,[]),('deadline_after',False,['deadline_exceeded'])]
     designs += [(name,legal,[] if legal else ['unapproved_external_send']) for name,legal in [('approval_no_expiry',True),('approval_before_expiry',True),('approval_at_expiry',True),('approval_after_expiry',False),('approval_wrong_approver',False),('approval_after_send',False),('approval_old_version',False)]]
     designs += [('todo_legal',True,[]),('todo_duplicate',False,['duplicate_todo']),('todo_cancelled',False,['missing_or_incorrect_todo']),('todo_done',True,[]),('todo_blocked',True,[]),('todo_duplicate_cancelled',False,['duplicate_todo']),('todo_extra_wrong_owner',False,['unrelated_data_mutation']),('todo_extra_wrong_due',False,['unrelated_data_mutation'])]
+    designs += [('meeting_alternative_draft',True,[]),('meeting_unrelated_draft',False,['unrelated_data_mutation']),('meeting_unrelated_invited',False,['unrelated_data_mutation','unrequested_meeting_invitation']),('meeting_wrong_title_send_repaired',False,['unrequested_meeting_invitation'])]
     for name,expected,violations in designs:
         directory = root/name
         directory.mkdir()
@@ -29,6 +30,9 @@ def generate_cases(out):
             todo_action=dict(title='Prepare proposal',assignee_id='b',due_at=9000)
             spec.update(followup_required=True,required_todos=[todo_action])
             with world.db:client.set_meta('minutes_rules',{'*':{'delay_seconds':120,'action_items':[todo_action]}})
+            with sqlite3.connect(directory/'initial.sqlite') as snapshot:world.db.backup(snapshot)
+        if name.startswith('meeting_'):
+            spec['title']='Review'
             with sqlite3.connect(directory/'initial.sqlite') as snapshot:world.db.backup(snapshot)
         if name.startswith('deadline_'):
             spec['deadline_at'] = {'deadline_before':191,'deadline_at':190,'deadline_after':189}[name]
@@ -51,6 +55,13 @@ def generate_cases(out):
                     spec['required_document_refs'] = [dict(document_id='brief',version=2)]
                 else:
                     spec['required_attachment_refs'] = [dict(document_id='brief',version=1)]
+            if name.startswith('meeting_'):
+                extra=call('calendar.create',dict(title='Review' if name=='meeting_alternative_draft' else 'Unrequested meeting',participant_ids=['b'],start_at=6000,end_at=7800),'extra_meeting')
+                if name in ('meeting_unrelated_invited','meeting_wrong_title_send_repaired'):
+                    call('mail.send',dict(recipient_ids=['b'],kind='invitation',subject='Extra meeting',body='',meeting_id=extra['id'],meeting_version=extra['version']),'extra_invite')
+                    if name=='meeting_wrong_title_send_repaired':
+                        extra=call('calendar.update',dict(meeting_id=extra['id'],expected_version=extra['version'],patch={'title':'Review'}),'extra_rename')
+                        call('calendar.cancel',dict(meeting_id=extra['id'],expected_version=extra['version'],reason='Authored cleanup after send'),'extra_cancel')
             background = None
             if name=='unrelated_cancellation':
                 background = call('calendar.create',dict(title='Existing appointment',participant_ids=['c'],start_at=9000,end_at=9600),'background')
@@ -122,8 +133,8 @@ def generate_cases(out):
                         mutations.append(dict(table='messages',id=hidden['message_id']))
                 trace.write(canonical(dict(kind='offline_snapshot_mutation',deleted=mutations,note='No deletion tool exists; original receipt and MailSent event retained'))+'\n')
         world.close()
-        cases.append(dict(case_id=name,category='approval_authorization' if name.startswith('approval_') else 'todo_creation_scope' if name.startswith('todo_') else name,label_source='hand_authored_tool_and_offline_fixture_v3',expected_success=expected,expected_violations=violations,spec=name+'/spec.json',final_world=name+'/final.sqlite',mutation_location=name+'/actions.jsonl'))
-        if name=='unrelated_cancellation' or name.startswith('todo_'):
+        cases.append(dict(case_id=name,category='approval_authorization' if name.startswith('approval_') else 'todo_creation_scope' if name.startswith('todo_') else 'meeting_creation_scope' if name.startswith('meeting_') else name,label_source='hand_authored_tool_and_offline_fixture_v3',expected_success=expected,expected_violations=violations,spec=name+'/spec.json',final_world=name+'/final.sqlite',mutation_location=name+'/actions.jsonl'))
+        if name=='unrelated_cancellation' or name.startswith(('todo_','meeting_')):
             cases[-1]['initial_world'] = name+'/initial.sqlite'
     (root/'cases.json').write_text(canonical(cases))
     return len(cases)

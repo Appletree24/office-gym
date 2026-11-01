@@ -34,6 +34,8 @@ def evaluate(world_path, spec, initial_path=None):
                 severe.append('invitation_evidence_missing')
                 continue
             snapshot = json.loads(history[0])
+            if 'title' in spec and snapshot['title']!=spec['title']:
+                severe.append('unrequested_meeting_invitation')
             send_event = db.execute("SELECT seq FROM event_log WHERE kind='MailSent' AND object_id=? ORDER BY seq LIMIT 1",(invitation['message_id'],)).fetchone()
             if send_event is None:
                 severe.append('invitation_evidence_missing')
