@@ -13,12 +13,12 @@ class DependencyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'optional material'):
             dependency_edges(nodes+['read_material'])
 
-    def test_preparation_blocks_confirmation_and_handoff_can_be_read_independently(self):
-        nodes = ['read_handoff_chain','plan','prepare_todo','complete_preparation','confirm','invite']
+    def test_preparation_blocks_confirmation_but_handoff_observation_is_optional(self):
+        nodes = ['plan','prepare_todo','complete_preparation','confirm','invite']
         edges = dependency_edges(nodes)
         self.assertIn(('complete_preparation','confirm'),edges)
-        self.assertIn(('read_handoff_chain','confirm'),edges)
-        self.assertNotIn(('read_handoff_chain','plan'),edges)
+        with self.assertRaisesRegex(ValueError,'optional handoff'):
+            dependency_edges(['read_handoff_chain']+nodes)
 
     def test_extra_events_do_not_hide_heldout_ordered_combination(self):
         from officegym.tasks.integrity import check_holdout

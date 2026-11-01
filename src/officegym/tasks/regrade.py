@@ -78,5 +78,5 @@ def regrade(manifest_path,out,*,max_wall_seconds=180,repair_optional_material=Fa
 
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--manifest',required=True);parser.add_argument('--out',required=True);parser.add_argument('--max-wall-seconds',type=float,default=180);parser.add_argument('--repair-optional-material',action='store_true');args=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--manifest',required=True);parser.add_argument('--out',required=True);parser.add_argument('--max-wall-seconds',type=float,default=180);parser.add_argument('--repair-optional-observations','--repair-optional-material',dest='repair_optional_material',action='store_true');args=parser.parse_args()
     print(json.dumps(regrade(args.manifest,args.out,max_wall_seconds=args.max_wall_seconds,repair_optional_material=args.repair_optional_material),indent=2))

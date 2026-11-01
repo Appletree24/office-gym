@@ -370,7 +370,14 @@ artifacts/dependency_skip_probe_v15 覆盖全部 142 个 D3 实例／368 条案�
 旧 DAG 不可直接作为当前标注复用。显式迁移命令：
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m officegym.tasks.regrade --manifest /absolute/OLD/manifest.json --out /absolute/NEW --max-wall-seconds 180 --repair-optional-material
+PYTHONPATH=src .venv/bin/python -m officegym.tasks.regrade --manifest /absolute/OLD/manifest.json --out /absolute/NEW --max-wall-seconds 180 --repair-optional-observations
 ```
 
 该模式会修改外层 task.json 的 DAG／可选观察元数据，并如实报告 task_inputs_unchanged=false；公开任务、初始数据库、私有约束、事件规则、参考动作和最终业务状态保持一致。v16 的默认参考策略重放全部1,010例通过，142个D3实例的368条选定约束审计也通过；首批计划v7保持四十任务身份。当前数据仍未冻结，真实 teacher、人工审查、过拟合及正式实验仍待完成。
+
+
+2026-11-01 optional handoff observation checkpoint: 346 CPU tests pass. Current unfrozen dataset is artifacts/dataset_development_v17, generator-v5-optional-observation-scope / required-dependency-annotation-v3; scoring remains eval-v9-invitation-timing/reward-v9-invitation-timing. In all ten current U01 fixtures, real people.search yields exactly one visible person outside the principal, initial coordinator and required participants. The named reference-v3-unique-public-other-approver-v1 policy requests real approval from this candidate and legally completes without reading the handoff thread. It refuses ambiguous rosters; the default reference still reads the chain and handles the added-distractor control. This is a narrow fixture shortcut, not a general handoff algorithm.
+
+The explicit metadata migration removes ten optional read_handoff_chain nodes and corrects ten widths; no path lengths change. Independent audit verifies all 1,010 public task payloads, initial/private/event-rule/reference-action/grade files, semantic fingerprints and reference final hashes remain unchanged. All annotated DAG widths are now one; this is not exhaustive proof of causal paths. Optional tool metadata now includes purpose scopes (mail.get_thread: handoff_chain, documents.read: material_body when applicable), so it does not declare every use of the mail tool optional. Use --repair-optional-observations for explicit migration; --repair-optional-material remains a compatibility alias.
+
+Evidence: handoff_read_optional_probe_v1 preserves the pre-repair proof; v2 verifies all ten current instances with zero handoff reads. dataset_v17_reference_replay passes all 1,010 grades/state hashes/operation audits; dependency_skip_probe_v17 passes all 368 selected-stage interventions over 142 D3 instances. teacher_pilot_selection_v8 preserves the same forty planned tasks as v7. optional_handoff_package_v1 verifies all 143 wheel source/resource files and isolated imports. No model/teacher/API calls or training took place. Human mask review, real sixteen-sample overfit, admitted SFT/export and formal GRPO/RS-SFT and frozen scientific evaluations remain pending.

@@ -110,7 +110,6 @@ def generate(out,templates=TRAIN_TEMPLATES,count_per_template=3,seed=None,split=
                 rules['approval_rules']['owner']['required_preparation'] = public['preparation_todos']
             if template=='U01':
                 public.update(handoff_thread_id='handoff',initial_coordinator_id='owner')
-                nodes.insert(0,'read_handoff_chain')
                 rules['approval_rules']['replacement'] = {'decision':'grant','delay_seconds':180}
             if template=='U02':
                 rules['approval_rules']['replacement'] = {'decision':'grant','delay_seconds':180}

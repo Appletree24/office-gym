@@ -51,10 +51,10 @@ def validate_dataset(manifest_path):
             if entry['split']=='train':
                 check_holdout(signature,manifest.get('heldout_signatures',[['AttendeeChanged','DocumentVersionPublished']]))
         dag = task['dependency_dag']
-        from .dependencies import dependency_edges,ANNOTATION_VERSION,GENERATOR_VERSION
+        from .dependencies import dependency_edges,ANNOTATION_VERSION,GENERATOR_VERSION,optional_observation_scopes
         expected_edges=dependency_edges(dag['nodes'])
         if [list(edge) for edge in expected_edges]!=[list(edge) for edge in dag['edges']]:raise ValueError('declared DAG edges differ from required-stage policy')
-        if manifest.get('task_generator_version')==GENERATOR_VERSION and (task.get('dependency_annotation_version')!=ANNOTATION_VERSION or task.get('optional_observation_tools')!=(['documents.read'] if task['public_task'].get('required_document_refs') else [])):raise ValueError('missing or incorrect required-dependency annotation')
+        if manifest.get('task_generator_version')==GENERATOR_VERSION and (task.get('dependency_annotation_version')!=ANNOTATION_VERSION or task.get('optional_observation_tools')!=list(optional_observation_scopes(task['public_task'])) or task.get('optional_observation_scopes')!=optional_observation_scopes(task['public_task'])):raise ValueError('missing or incorrect required-dependency annotation')
         depth = dependency_depth(dag['nodes'],dag['edges'])
         width=dependency_width(dag['nodes'],dag['edges'])
         if width<1 or task.get('dependency_width')!=width:

@@ -5,9 +5,11 @@ from officegym.env.world import canonical as canonical_followup
 
 REFERENCE_VERSION='reference-v3-batched-availability'
 PUBLIC_MATERIAL_VARIANT='reference-v3-public-material-refs-only-v1'
+PUBLIC_HANDOFF_VARIANT='reference-v3-unique-public-other-approver-v1'
 
 
-def solve(task, call, *, material_observations=True):
+def solve(task, call, *, material_observations=True, handoff_observations=True):
+    if type(handoff_observations) is not bool:raise ValueError('explicit handoff observation boolean required')
     if type(material_observations) is not bool:raise ValueError('explicit material observation boolean required')
     counter = 0
     sim_time = None
@@ -22,15 +24,28 @@ def solve(task, call, *, material_observations=True):
     invoke('office.get_context',{})
     handoff_approver = None
     if task.get('handoff_thread_id'):
-        thread = invoke('mail.get_thread',{'thread_id':task['handoff_thread_id']})
-        coordinator = task['initial_coordinator_id']
-        for message in thread['items']:
-            request = json.loads(message['request_json']) if message['request_json'] else {}
-            if request.get('type')=='coordinator_handoff' and message['sender_id']==coordinator:
-                coordinator = request['new_coordinator_id']
-                handoff_approver = request['approver_id']
-        if handoff_approver is None:
-            raise RuntimeError('no valid visible coordinator handoff')
+        if handoff_observations:
+            thread = invoke('mail.get_thread',{'thread_id':task['handoff_thread_id']})
+            coordinator = task['initial_coordinator_id']
+            for message in thread['items']:
+                request = json.loads(message['request_json']) if message['request_json'] else {}
+                if request.get('type')=='coordinator_handoff' and message['sender_id']==coordinator:
+                    coordinator = request['new_coordinator_id']
+                    handoff_approver = request['approver_id']
+            if handoff_approver is None:
+                raise RuntimeError('no valid visible coordinator handoff')
+        else:
+            visible=[];cursor=''
+            for _ in range(20):
+                page=invoke('people.search',dict(query='',cursor=cursor))
+                visible.extend(person['id'] for person in page['items'])
+                cursor=page.get('next_cursor')
+                if not cursor:break
+            else:raise RuntimeError('public directory pagination budget exhausted')
+            excluded={task['principal_id'],task['initial_coordinator_id'],*task['required_participant_ids']}
+            candidates=set(visible)-excluded
+            if len(candidates)!=1:raise ValueError('unique-public-other approver shortcut is not applicable')
+            handoff_approver=next(iter(candidates))
     people = task['required_participant_ids']
     start,end = task['allowed_window_utc']
     if task.get('collect_availability'):
