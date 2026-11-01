@@ -204,5 +204,7 @@ def generate_cases(out):
         cases.append(dict(case_id=name,category='approval_authorization' if name.startswith('approval_') else 'todo_creation_scope' if name.startswith('todo_') else 'meeting_creation_scope' if name.startswith('meeting_') else 'invitation_membership' if name.startswith('invite_members_') else 'invitation_timing' if name.startswith('invite_time_') else 'availability_at_invitation' if name.startswith('reply_') else name,label_source='hand_authored_tool_and_offline_fixture_v3',expected_success=expected,expected_violations=violations,spec=name+'/spec.json',final_world=name+'/final.sqlite',mutation_location=name+'/actions.jsonl'))
         if name=='unrelated_cancellation' or name.startswith(('todo_','meeting_','invite_members_','invite_time_','reply_')):
             cases[-1]['initial_world'] = name+'/initial.sqlite'
+    from .conflict_cases import generate_conflict_cases
+    cases.extend(generate_conflict_cases(root))
     (root/'cases.json').write_text(canonical(cases))
     return len(cases)
