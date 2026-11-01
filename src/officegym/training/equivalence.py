@@ -83,6 +83,7 @@ def validate(plan):
         if type(plan[field]) not in (int,float) or not math.isfinite(plan[field]):
             raise ValueError('finite numerical equivalence thresholds required')
     if plan.get('negative_control') not in (None,'disabled_adapter'):raise ValueError('unsupported negative control')
+    if plan.get('attention_backend','auto') not in ('auto','math'):raise ValueError('explicit supported numerical attention backend required')
     rtol=plan.get('logit_rtol',0)
     if type(rtol) not in (int,float) or not math.isfinite(rtol) or rtol<0:raise ValueError('finite nonnegative relative logit tolerance required')
     if plan['logit_atol']<0 or not 0<=plan['min_generation_match_rate']<=1 or plan['max_wall_seconds']<=0:
@@ -130,6 +131,10 @@ def worker(plan_path,sha256,out):
     from peft import PeftModel
     configure_memory(base)
     torch.manual_seed(0);torch.use_deterministic_algorithms(True)
+    attention_backend=plan.get('attention_backend','auto')
+    if attention_backend=='math':
+        torch.backends.cuda.enable_flash_sdp(False);torch.backends.cuda.enable_mem_efficient_sdp(False);torch.backends.cuda.enable_cudnn_sdp(False);torch.backends.cuda.enable_math_sdp(True)
+    torch.backends.cuda.matmul.allow_tf32=False
     root=Path(out)
     def snapshots(model,label):
         model.eval()
@@ -169,7 +174,7 @@ def worker(plan_path,sha256,out):
     for row in before+after:row.pop('logits')
     rate=sum(row['generation_equal'] for row in comparisons)/len(comparisons)
     passed=all(row['logits']['within_tolerance'] for row in comparisons) and rate>=plan['min_generation_match_rate'] and (negative is None or negative['detected'])
-    report=dict(negative_control=negative,numerical_report_version=NUMERIC_REPORT_VERSION,peak_allocated_bytes=torch.cuda.max_memory_allocated() if base['device']=='cuda' else None,passed=False,passed_numeric=passed,tool_behavior='pending',logit_positions='last_input_token_full_vocabulary',generation_match_rate=rate,
+    report=dict(attention_backend=attention_backend,sdpa_backends=dict(math=torch.backends.cuda.math_sdp_enabled(),flash=torch.backends.cuda.flash_sdp_enabled(),efficient=torch.backends.cuda.mem_efficient_sdp_enabled(),cudnn=torch.backends.cuda.cudnn_sdp_enabled()),model_attention_geometry=dict(query_heads=getattr(model.config,'num_attention_heads',None),kv_heads=getattr(model.config,'num_key_value_heads',None),head_dim=getattr(model.config,'head_dim',None)),tf32=False,negative_control=negative,numerical_report_version=NUMERIC_REPORT_VERSION,peak_allocated_bytes=torch.cuda.max_memory_allocated() if base['device']=='cuda' else None,passed=False,passed_numeric=passed,tool_behavior='pending',logit_positions='last_input_token_full_vocabulary',generation_match_rate=rate,
                 thresholds=dict(logit_atol=plan['logit_atol'],logit_rtol=plan.get('logit_rtol',0),min_generation_match_rate=plan['min_generation_match_rate']),comparisons=comparisons,before=before,after=after,
                 source_checkpoint_files_sha256=merged['training_source']['source_checkpoint_files_sha256'],optimizer_step=base['optimizer_step'],exported_checkpoint_sha256=merged['exported_checkpoint_sha256'],plan_sha256=sha256)
     replay_comparisons(report,probes,model.config.vocab_size,plan['logit_atol'],plan.get('logit_rtol',0))
