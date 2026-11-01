@@ -14,6 +14,8 @@ def audit_calibration(manifest_path,plan_path,results_path,out,*,min_success_rat
         if type(value) not in (int,float) or not math.isfinite(value):raise ValueError('finite explicit calibration bounds required')
     if not 0<=min_success_rate<max_success_rate<=1:raise ValueError('ordered calibration bounds in [0,1] required')
     manifest_path,plan_path,results_path=map(lambda p:Path(p).resolve(),(manifest_path,plan_path,results_path))
+    inputs=(manifest_path,plan_path,results_path)
+    original_hashes={path:hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}
     validate_dataset(manifest_path)
     manifest=json.loads(manifest_path.read_text());digest=hashlib.sha256(plan_path.read_bytes()).hexdigest()
     if Path(str(plan_path)+'.sha256').read_text().strip()!=digest:raise ValueError('calibration plan checksum mismatch')
@@ -45,7 +47,9 @@ def audit_calibration(manifest_path,plan_path,results_path,out,*,min_success_rat
         scores[row['group']].append(actual['success'])
     rates={group:sum(values)/len(values) for group,values in scores.items()}
     useful=any(min_success_rate<rate<max_success_rate for rate in rates.values())
-    report=dict(evidence_verified=True,calibration_usable=useful,success_rates=rates,dev_instances=len(dev),runs=len(rows),min_success_rate=min_success_rate,max_success_rate=max_success_rate,source_manifest_sha256=hashlib.sha256(manifest_path.read_bytes()).hexdigest(),plan_sha256=digest,results_sha256=hashlib.sha256(results_path.read_bytes()).hexdigest(),dataset_frozen=False,scope='Verified complete dev evidence and explicitly chosen difficulty bounds only; not dataset freeze or independent proof of pre-experiment chronology.')
+    if any(hashlib.sha256(path.read_bytes()).hexdigest()!=digest for path,digest in original_hashes.items()):
+        raise ValueError('calibration input changed during evidence audit')
+    report=dict(evidence_verified=True,calibration_usable=useful,success_rates=rates,dev_instances=len(dev),runs=len(rows),min_success_rate=min_success_rate,max_success_rate=max_success_rate,source_manifest_sha256=original_hashes[manifest_path],plan_sha256=original_hashes[plan_path],results_sha256=original_hashes[results_path],dataset_frozen=False,scope='Verified complete dev evidence and explicitly chosen difficulty bounds only; not dataset freeze or independent proof of pre-experiment chronology.')
     destination=Path(out);destination.parent.mkdir(parents=True,exist_ok=True)
     with destination.open('x') as stream:json.dump(report,stream,indent=2);stream.write('\n')
     return report

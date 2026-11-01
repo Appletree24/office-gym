@@ -39,6 +39,14 @@ class CalibrationTests(unittest.TestCase):
                     rows[1]['artifact_path']=reused;write(rows)
                     with self.assertRaisesRegex(ValueError,'reuse runtime'):audit_calibration(manifest,plan,results,root/'bad.json',min_success_rate=.1,max_success_rate=.9)
                 rows[1]['artifact_path']=original
+                write(rows)
+                def changing_export(path,planned,source):
+                    results.write_text(results.read_text()+'\n')
+                    return fixture_export(path,planned,source)
+                with patch('officegym.eval.calibration.result_row',side_effect=changing_export):
+                    with self.assertRaisesRegex(ValueError,'input changed'):
+                        audit_calibration(manifest,plan,results,root/'changed.json',min_success_rate=.1,max_success_rate=.9)
+                self.assertFalse((root/'changed.json').exists())
                 rows[0]['synthetic']=True;write(rows)
                 with self.assertRaisesRegex(ValueError,'measured'):audit_calibration(manifest,plan,results,root/'bad.json',min_success_rate=.1,max_success_rate=.9)
 
