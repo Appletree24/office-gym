@@ -1,10 +1,15 @@
 """Dependency edges express prerequisites, not one solver's chosen ordering."""
 
 
+GENERATOR_VERSION='generator-v4-required-dependencies'
+ANNOTATION_VERSION='required-dependency-annotation-v2'
+
+
 def dependency_edges(nodes):
     if len(nodes)!=len(set(nodes)) or 'plan' not in nodes or 'invite' not in nodes:
         raise ValueError('unique workflow stages including plan and invite required')
-    preparation = {'read_material','collect_replies','read_handoff_chain'}
+    if 'read_material' in nodes:raise ValueError('optional material reading cannot be an intrinsic dependency')
+    preparation = {'collect_replies','read_handoff_chain'}
     core = [node for node in nodes if node not in preparation]
     edges = list(zip(core,core[1:]))
     for stage in nodes:
@@ -12,3 +17,12 @@ def dependency_edges(nodes):
             target = 'confirm' if stage=='read_handoff_chain' and 'confirm' in nodes else 'plan'
             edges.append((stage,target))
     return edges
+
+
+def annotate_required_dependencies(task):
+    """Correct only observation metadata; public task and business inputs are untouched."""
+    from .integrity import dependency_depth,dependency_width
+    updated=dict(task);nodes=[node for node in task['dependency_dag']['nodes'] if node!='read_material']
+    edges=dependency_edges(nodes)
+    updated.update(dependency_dag=dict(nodes=nodes,edges=edges),dependency_path_length=dependency_depth(nodes,edges),dependency_width=dependency_width(nodes,edges),dependency_annotation_version=ANNOTATION_VERSION,optional_observation_tools=['documents.read'] if task['public_task'].get('required_document_refs') else [])
+    return updated

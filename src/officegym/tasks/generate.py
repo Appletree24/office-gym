@@ -7,7 +7,7 @@ from .artifacts import write_instance
 from .reference import REFERENCE_VERSION
 from officegym.tools.schema import TOOL_SCHEMA_VERSION
 from .integrity import validate_unique,check_holdout
-from .dependencies import dependency_edges
+from .dependencies import dependency_edges,annotate_required_dependencies,GENERATOR_VERSION
 from .controls import PROFILE,material
 
 from .partitions import TRAIN_TEMPLATES,SUPPORTED,SEED_RANGES,HELDOUT_SIGNATURES
@@ -89,7 +89,6 @@ def generate(out,templates=TRAIN_TEMPLATES,count_per_template=3,seed=None,split=
             refs = [{'document_id':'agenda','version':1}] if template in ('T05','D02') or heldout_combo or (depth_level is not None and (depth_level>=2 or perturbation_level==2)) else []
             if refs:
                 public['required_document_refs'] = refs
-                nodes.insert(1,'read_material')
             if template in ('T05','D02') or heldout_combo:
                 if template=='T05':
                     public['monitor_until'] = base+3000
@@ -147,10 +146,11 @@ def generate(out,templates=TRAIN_TEMPLATES,count_per_template=3,seed=None,split=
                     task = dict(instance_id=template+'_'+str(number)+(('_D'+str(depth_level)+'P'+str(perturbation_level or 0)) if depth_level is not None else ''),split=split,template_id=template,scenario_family_id='family_'+str(number),depth_level=depth_level if depth_level is not None else (3 if template in ('T08','U04') else 1),perturbation_level=len(scheduled),event_signature=signature,seed=number,public_task=public,dependency_dag={'nodes':nodes,'edges':dependency_edges(nodes)})
                     if depth_level is not None:
                         task.update(controlled_scan=True,control_profile=dict(PROFILE))
+                    task=annotate_required_dependencies(task)
                     entries.append(write_instance(root,task,world,private,dict(rules,scheduled_events=scheduled)))
                 finally:
                     world.close()
     validate_unique(entries)
-    manifest = dict(task_generator_version='generator-v3-controlled-width',reference_solver_version=REFERENCE_VERSION,tool_schema_version=TOOL_SCHEMA_VERSION,status='development_distribution_not_frozen',heldout_signatures=HELDOUT_SIGNATURES,instances=entries)
+    manifest = dict(task_generator_version=GENERATOR_VERSION,reference_solver_version=REFERENCE_VERSION,tool_schema_version=TOOL_SCHEMA_VERSION,status='development_distribution_not_frozen',heldout_signatures=HELDOUT_SIGNATURES,instances=entries)
     (root/'manifest.json').write_text(canonical(manifest)+'\n')
     return manifest

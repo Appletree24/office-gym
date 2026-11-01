@@ -4,14 +4,14 @@ from officegym.tasks.integrity import dependency_depth
 
 
 class DependencyTests(unittest.TestCase):
-    def test_material_and_replies_have_no_invented_order(self):
-        nodes = ['plan','read_material','collect_replies','confirm','invite','meeting_end','minutes','todos']
-        edges = dependency_edges(nodes)
-        self.assertIn(('read_material','plan'),edges)
+    def test_optional_material_read_cannot_inflate_required_depth_or_width(self):
+        from officegym.tasks.integrity import dependency_width
+        nodes=['plan','collect_replies','confirm','invite','meeting_end','minutes','todos']
+        edges=dependency_edges(nodes)
         self.assertIn(('collect_replies','plan'),edges)
-        self.assertNotIn(('read_material','collect_replies'),edges)
-        self.assertNotIn(('plan','read_material'),edges)
-        self.assertEqual(dependency_depth(nodes,edges),7)
+        self.assertEqual(dependency_depth(nodes,edges),7);self.assertEqual(dependency_width(nodes,edges),1)
+        with self.assertRaisesRegex(ValueError,'optional material'):
+            dependency_edges(nodes+['read_material'])
 
     def test_preparation_blocks_confirmation_and_handoff_can_be_read_independently(self):
         nodes = ['read_handoff_chain','plan','prepare_todo','complete_preparation','confirm','invite']

@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 from officegym.env.world import canonical
 from .generate import generate,TRAIN_TEMPLATES,HELDOUT_SIGNATURES
+from .dependencies import GENERATOR_VERSION
 from .reference import REFERENCE_VERSION
 from officegym.tools.schema import TOOL_SCHEMA_VERSION
 from .integrity import validate_unique
@@ -38,10 +39,10 @@ def assemble(config_path,out):
     add('combo',templates=('T07',),count_per_template=counts['combo_test'],split='combo_test',heldout_combo=True)
     add('unseen',templates=('U01','U02','U03','U04'),count_per_template=counts['unseen_test']//4,split='unseen_test')
     validate_unique(entries)
-    manifest = dict(status='development_dataset_not_frozen',task_generator_version='generator-v3-controlled-width',reference_solver_version=REFERENCE_VERSION,tool_schema_version=TOOL_SCHEMA_VERSION,instances=entries,heldout_signatures=HELDOUT_SIGNATURES,
+    manifest = dict(status='development_dataset_not_frozen',task_generator_version=GENERATOR_VERSION,reference_solver_version=REFERENCE_VERSION,tool_schema_version=TOOL_SCHEMA_VERSION,instances=entries,heldout_signatures=HELDOUT_SIGNATURES,
                     limitations=['Combo split uses one template and two perturbations: its held-out signature requires two events, so P0/P1 cells are inapplicable; interpret only within this composition.',
                                  'ID scan currently uses T04 composition only; interpret within this composition.',
-                                 'DAG width is 1 at controlled D1 and 2 at D2/D3; stratify by width and do not claim a pure depth effect.',
+                                 'Controlled-scan DAG width is 1; optional material reads are excluded from intrinsic dependencies.',
                                  'Depth dependence requires additional skip-stage adversarial audit before freezing.'])
     (root/'manifest.json').write_text(canonical(manifest)+'\n')
     report = validate_dataset(root/'manifest.json')

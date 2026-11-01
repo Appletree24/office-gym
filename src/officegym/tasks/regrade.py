@@ -24,8 +24,10 @@ def final_hash(path):
     finally:world.close()
 
 
-def regrade(manifest_path,out,*,max_wall_seconds=180):
+def regrade(manifest_path,out,*,max_wall_seconds=180,repair_optional_material=False):
     if type(max_wall_seconds) not in (int,float) or not math.isfinite(max_wall_seconds) or max_wall_seconds<=0:raise ValueError('finite positive regrade wall budget required')
+    if type(repair_optional_material) is not bool:raise ValueError('explicit annotation repair boolean required')
+    metadata_changed=0
     started=time.monotonic();source=Path(manifest_path).resolve();original_sha=digest(source);manifest=json.loads(source.read_text())
     if manifest.get('status') not in ('development_dataset_not_frozen','development_distribution_not_frozen'):raise ValueError('only unfrozen development datasets may be regraded')
     root=Path(out).resolve()
@@ -44,6 +46,13 @@ def regrade(manifest_path,out,*,max_wall_seconds=180):
             if final_hash(directory/'reference_final.sqlite')!=entry['reference_final_hash']:raise ValueError('retained reference final state changed')
             target.parent.mkdir(parents=True,exist_ok=True);shutil.copytree(directory,target,ignore=shutil.ignore_patterns('*-wal','*-shm'))
             if any(digest(target/name)!=value for name,value in expected.items()):raise ValueError('copied dataset differs from source manifest')
+            if repair_optional_material:
+                from .dependencies import annotate_required_dependencies
+                task=json.loads((target/'task.json').read_text());updated=annotate_required_dependencies(task)
+                if canonical(updated)!=canonical(task):
+                    metadata_changed+=1;(target/'task.json').write_text(canonical(updated)+'\n')
+                    entry['files_sha256']['task.json']=digest(target/'task.json')
+                entry['dependency_width']=updated['dependency_width']
             public=json.loads((target/'task.json').read_text())['public_task'];private=json.loads((target/'private_spec.json').read_text())
             grade=evaluate(target/'reference_final.sqlite',{**public,**private},target/'initial_world.sqlite');audit=reconcile(target/'reference_final.sqlite')
             if final_hash(target/'reference_final.sqlite')!=entry['reference_final_hash']:raise ValueError('reference state changed during regrade')
@@ -52,9 +61,14 @@ def regrade(manifest_path,out,*,max_wall_seconds=180):
             record=dict(instance_id=entry['instance_id'],full_success=grade['full_success'],operation_consistent=audit['consistent'],reference_final_hash=entry['reference_final_hash'])
             records.append(record);progress.write(canonical(record)+'\n');progress.flush()
     if digest(source)!=original_sha:raise ValueError('source manifest changed during regrade')
-    manifest['rescoring']=dict(source_manifest=str(source),source_manifest_sha256=original_sha,eval_grader_version=EVAL_GRADER_VERSION,reward_version=REWARD_VERSION,task_inputs_unchanged=True)
+    if repair_optional_material:
+        from .dependencies import GENERATOR_VERSION
+        manifest['task_generator_version']=GENERATOR_VERSION
+        manifest['limitations']=[item for item in manifest.get('limitations',[]) if not item.startswith('DAG width is 1 at controlled D1')]
+        manifest['limitations'].append('Optional material reads are excluded; controlled-scan width is 1. Other DAG paths still require causal audit.')
+    manifest['rescoring']=dict(source_manifest=str(source),source_manifest_sha256=original_sha,eval_grader_version=EVAL_GRADER_VERSION,reward_version=REWARD_VERSION,task_inputs_unchanged=not metadata_changed,public_business_inputs_unchanged=True,task_metadata_reannotated=metadata_changed)
     (root/'manifest.json').write_text(canonical(manifest)+'\n')
-    report=dict(kind='development-reference-rescoring-not-model-results',instances=len(records),reference_passed=sum(row['full_success'] for row in records),operation_audits_passed=sum(row['operation_consistent'] for row in records),eval_grader_version=EVAL_GRADER_VERSION,reward_version=REWARD_VERSION,source_manifest_sha256=original_sha,task_inputs_unchanged=True,wall_cap_seconds=max_wall_seconds)
+    report=dict(kind='development-reference-rescoring-not-model-results',instances=len(records),reference_passed=sum(row['full_success'] for row in records),operation_audits_passed=sum(row['operation_consistent'] for row in records),eval_grader_version=EVAL_GRADER_VERSION,reward_version=REWARD_VERSION,source_manifest_sha256=original_sha,task_inputs_unchanged=not metadata_changed,public_business_inputs_unchanged=True,task_metadata_reannotated=metadata_changed,wall_cap_seconds=max_wall_seconds)
     (root/'regrade_report.json').write_text(canonical(report)+'\n')
     if not records or any(not row['full_success'] or not row['operation_consistent'] for row in records):raise ValueError('regraded reference failed; inspect retained results')
     validation=validate_dataset(root/'manifest.json');(root/'validation.json').write_text(canonical(validation)+'\n')
@@ -64,5 +78,5 @@ def regrade(manifest_path,out,*,max_wall_seconds=180):
 
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--manifest',required=True);parser.add_argument('--out',required=True);parser.add_argument('--max-wall-seconds',type=float,default=180);args=parser.parse_args()
-    print(json.dumps(regrade(args.manifest,args.out,max_wall_seconds=args.max_wall_seconds),indent=2))
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--manifest',required=True);parser.add_argument('--out',required=True);parser.add_argument('--max-wall-seconds',type=float,default=180);parser.add_argument('--repair-optional-material',action='store_true');args=parser.parse_args()
+    print(json.dumps(regrade(args.manifest,args.out,max_wall_seconds=args.max_wall_seconds,repair_optional_material=args.repair_optional_material),indent=2))

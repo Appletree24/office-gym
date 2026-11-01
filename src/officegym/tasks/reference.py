@@ -4,9 +4,11 @@ from officegym.env.world import canonical as canonical_followup
 
 
 REFERENCE_VERSION='reference-v3-batched-availability'
+PUBLIC_MATERIAL_VARIANT='reference-v3-public-material-refs-only-v1'
 
 
-def solve(task, call):
+def solve(task, call, *, material_observations=True):
+    if type(material_observations) is not bool:raise ValueError('explicit material observation boolean required')
     counter = 0
     sim_time = None
     def invoke(name, args, write=False):
@@ -76,10 +78,11 @@ def solve(task, call):
     if start+duration > end:
         raise RuntimeError('no feasible slot')
     refs = task.get('required_document_refs',[])
-    for ref in refs:
-        document = invoke('documents.read',ref)
-        while document.get('next_cursor'):
-            document = invoke('documents.read',dict(ref,cursor=document['next_cursor']))
+    if material_observations:
+        for ref in refs:
+            document = invoke('documents.read',ref)
+            while document.get('next_cursor'):
+                document = invoke('documents.read',dict(ref,cursor=document['next_cursor']))
     meeting = invoke('calendar.create',dict(title=task.get('title','Review'),participant_ids=people,start_at=start,end_at=start+duration,document_refs=refs),True)
     for preparation in task.get('preparation_todos',[]):
         todo = invoke('todos.create',dict(preparation,source_meeting_id=meeting['id']),True)
@@ -131,9 +134,10 @@ def solve(task, call):
                     if facts['document_id'] not in task.get('track_document_ids',[]):
                         continue
                     ref = {'document_id':facts['document_id'],'version':facts['version']}
-                    document = invoke('documents.read',ref)
-                    while document.get('next_cursor'):
-                        document = invoke('documents.read',dict(ref,cursor=document['next_cursor']))
+                    if material_observations:
+                        document = invoke('documents.read',ref)
+                        while document.get('next_cursor'):
+                            document = invoke('documents.read',dict(ref,cursor=document['next_cursor']))
                     refs = [item for item in json.loads(meeting['document_refs_json']) if item['document_id']!=ref['document_id']] + [ref]
                     meeting = invoke('calendar.update',dict(meeting_id=meeting['id'],expected_version=meeting['version'],patch={'document_refs':refs}),True)
                 elif facts.get('meeting_id') != meeting['id']:
