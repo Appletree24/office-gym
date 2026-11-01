@@ -266,3 +266,10 @@ PYTHONPATH=src .venv/bin/python -m officegym.training.review_admission --data /a
 Teacher 和 RS-SFT 采样现在会在保存的 resolved_sampling_config 中强制 `context_policy: training_full_history`，要求完整 Harness、`max_context_tokens <= 8192`。每次生成前用锁定 tokenizer 计算完整原始会话和工具 schema 的输入长度，并预留 max_output_tokens；超限直接记 CONTEXT_OVERFLOW，不调用模型、不摘要、不丢旧轮次。工具返回追加后再用无额外生成前缀的原生模板检查整条会话，最终 task.finish 的工具观察也纳入检查；超长不能 DECLARED_DONE 或进入 successful_runs。普通评测默认仍使用既有完整／简单 Harness 上下文策略。构建 SFT 时继续独立核对最终 assistant mask 及训练序列长度。
 
 `artifacts/teacher_pilot_history_feasibility_v1` 使用真实锁定 tokenizer、8,192 上限及 512 输出预留检查首批 40 个任务的作者参考解：38 条完整放得下，2 条在后续生成前超出预留条件，后两条参考解也均超过 24 次工具调用。保留全部选中任务和失败记录，没有按参考成绩／长度重选；实际 teacher 可能产生不同长度轨迹，不能将此结果写成 teacher 成功率或不可解证明。
+
+
+十六样本过拟合测量已接入 `train-sft` 的可选 `overfit_check` 配置。将 [sft_overfit_criteria.template.json](configs/sft_overfit_criteria.template.json) 填成数值对象后放入完整训练配置的 overfit_check 字段；模板本身不能运行。四项条件分别为最终 assistant 平均因果交叉熵上限、token 准确率下限、相对初始损失降幅下限，以及每次测量的有限秒数。准确率／降幅阈值范围为 0–1，必须在训练前确定并随 resolved 配置保存。
+
+启用后，数据必须恰好十六个不同样本，仍需通过正常的 teacher 来源、长度、mask 和五样本人工审查检查。同一任务的不同轨迹可作为不同样本，不能用相同样本重复补齐数量。训练前后以 eval/no_grad 模式、相同原始会话和 assistant labels 测量，按因果移位仅累计被监督 token，逐块计算 FP32 交叉熵及 token／全序列准确率，保存 overfit_before.json、overfit_after.json 和 overfit_result.json，并写入训练证据。训练后检查还要求实际发生 optimizer update；失败阈值会如实保留为 passed=false，独立 dev 评测始终另记 pending，不自动视为环境成功。
+
+测量在样本及计算块边界检查独立时限和训练总时限；单次模型 forward 不能被该 Python 检查抢占，运行时仍应沿用外层资源 watchdog。当前 `artifacts/overfit_measurement_cpu_fixture_v1` 只验证作者构造 logits 的数值、mask 与模式恢复，没有加载真实模型权重、没有 optimizer update，也不满足手册的真实十六样本过拟合要求。真实完整训练路径尚待获得经审查的 teacher 数据后执行。

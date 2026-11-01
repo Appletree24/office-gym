@@ -6,8 +6,8 @@ from officegym.training.review_admission import register,CHECKS
 from test_mask_review import fixture
 
 
-def reviewed_fixture(data,metadata=None):
-    tokenizer=fixture(data)
+def reviewed_fixture(data,metadata=None,*,count=5):
+    tokenizer=fixture(data,count=count)
     manifest=json.loads((data/'manifest.json').read_text())
     # Preserve lineage/branch fields while using valid authored alignment vectors.
     if metadata:

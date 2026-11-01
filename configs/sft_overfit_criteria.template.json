@@ -1,0 +1,6 @@
+{
+  "max_mean_nll": "SET_POSITIVE_MAX_FINAL_ASSISTANT_NLL",
+  "min_token_accuracy": "SET_MIN_FINAL_ASSISTANT_TOKEN_ACCURACY_0_TO_1",
+  "min_relative_nll_reduction": "SET_MIN_RELATIVE_LOSS_REDUCTION_0_TO_1",
+  "max_evaluation_wall_seconds": "SET_FINITE_SECONDS_PER_BEFORE_OR_AFTER_MEASUREMENT"
+}

@@ -52,6 +52,10 @@ def validate_plan(plan,data_dir):
         raise ValueError('SFT sample hash mismatch')
     from .review_admission import require_review
     require_review(data_dir,manifest)
+    if 'overfit_check' in plan:
+        from .overfit import validate_config,validate_rows
+        validate_config(plan['overfit_check'])
+        validate_rows([json.loads(line) for line in samples.read_text().splitlines() if line.strip()])
     return manifest
 
 
@@ -129,8 +133,24 @@ def train(plan_path,data_dir,out):
     trainer = make_trainer(plan,rows,root,tokenizer,[WallBudget()])
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
+    overfit_report=None
     try:
+        if 'overfit_check' in plan:
+            from .overfit import measure,compare
+            def measurement():
+                return measure(trainer.model,rows,deadline=min(started+plan['max_wall_seconds'],time.monotonic()+plan['overfit_check']['max_evaluation_wall_seconds']))
+            baseline=measurement()
+            write_json(root/'overfit_before.json',baseline)
+            evidence.event('overfit_baseline',0,baseline)
         result = trainer.train()
+        if 'overfit_check' in plan:
+            if trainer.state.global_step<1:raise ValueError('overfit check requires an actual optimizer update')
+            after=measurement()
+            write_json(root/'overfit_after.json',after)
+            overfit_report=compare(baseline,after,plan['overfit_check'])
+            overfit_report['optimizer_steps']=trainer.state.global_step
+            write_json(root/'overfit_result.json',overfit_report)
+            evidence.event('overfit_result',trainer.state.global_step,overfit_report)
     except BaseException as exc:
         evidence.event('training_failed',trainer.state.global_step,{'error_type':type(exc).__name__})
         raise
@@ -140,7 +160,7 @@ def train(plan_path,data_dir,out):
     tokenizer.save_pretrained(root/'adapter')
     final_checkpoint=evidence.checkpoint(root/'adapter',trainer.state.global_step,kind='final_adapter')
     report = dict(checkpoint_interval_steps=plan['checkpoint_interval_steps'],final_checkpoint=final_checkpoint,training_branch=plan.get('training_branch','sft'),starting_checkpoint_sha256=manifest.get('starting_checkpoint_sha256'),metrics=result.metrics,optimizer_steps=trainer.state.global_step,wall_seconds=time.monotonic()-started,peak_allocated_bytes=torch.cuda.max_memory_allocated() if torch.cuda.is_available() else None,
-                  dataset_samples_sha256=manifest['samples_sha256'],export_equivalence_status='pending',dev_evaluation_status='pending')
+                  overfit_check=overfit_report,dataset_samples_sha256=manifest['samples_sha256'],export_equivalence_status='pending',dev_evaluation_status='pending')
     report=finite_logs(report)
     write_json(root/'train_result.json',report)
     return report
