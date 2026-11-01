@@ -96,6 +96,7 @@ def validate(plan):
     merged=json.loads(Path(plan['merge_result']).read_text())
     if merged.get('merged') is not True or merged.get('training_source')!=source['training_source'] or merged.get('base_checkpoint_sha256')!=source['base_checkpoint_sha256']:
         raise ValueError('merged source identity mismatch')
+    if merge_plan.get('merge_accumulation','native')=='float64' and merged.get('merge_arithmetic',{}).get('accumulation_dtype')!='float64':raise ValueError('merge arithmetic differs from the frozen plan')
     if not Path(merged['model_path']).is_absolute():
         raise ValueError('absolute merged model path required')
     if checkpoint_fingerprint(merged['model_path'])['checkpoint_sha256']!=merged['exported_checkpoint_sha256']:

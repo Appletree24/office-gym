@@ -17,6 +17,8 @@ def validate_merge_plan(plan):
         raise ValueError('missing resolved merge fields: '+','.join(sorted(required-set(plan))))
     if plan['device'] not in ('cpu','cuda') or plan['dtype'] not in ('float32','float16','bfloat16'):
         raise ValueError('explicit supported merge device/dtype required')
+    if plan.get('merge_accumulation','native') not in ('native','float64'):raise ValueError('unsupported merge accumulation dtype')
+    if plan.get('merge_accumulation','native')=='float64' and plan['dtype']!='float32':raise ValueError('FP64 accumulation currently requires FP32 output')
     if plan['device']=='cuda' and (type(plan.get('max_allocated_bytes')) is not int or plan['max_allocated_bytes']<1):
         raise ValueError('finite CUDA allocator byte cap required')
     if type(plan['max_wall_seconds']) not in (int,float) or not math.isfinite(plan['max_wall_seconds']) or plan['max_wall_seconds']<=0:
@@ -63,6 +65,37 @@ def configure_memory(plan):
         torch.cuda.reset_peak_memory_stats()
 
 
+
+def merge_with_float64_accumulation(model):
+    """Merge supported vanilla linear LoRA with one final cast to base dtype."""
+    import torch
+    from peft.tuners.lora.layer import Linear
+    if list(model.peft_config)!=['default']:raise ValueError('FP64 merge requires exactly the default adapter')
+    config=model.peft_config['default']
+    if any(getattr(config,key,None) for key in ('use_dora','use_rslora','lora_bias','fan_in_fan_out','rank_pattern','alpha_pattern','modules_to_save','target_parameters')) or config.bias!='none':raise ValueError('FP64 merge supports vanilla linear LoRA without bias/pattern variants')
+    layers=[module for module in model.modules() if isinstance(module,Linear)]
+    parameters=[name for name,_ in model.named_parameters() if '.lora_' in name]
+    if not layers or len(parameters)!=2*len(layers):raise ValueError('unsupported or unaccounted LoRA parameters')
+    seen=set()
+    for layer in layers:
+        weight=layer.get_base_layer().weight
+        a=layer.lora_A['default'].weight;b=layer.lora_B['default'].weight
+        if layer.merged or list(layer.active_adapters)!=['default'] or layer.fan_in_fan_out or len(layer.lora_variant):raise ValueError('unsupported LoRA layer state')
+        if weight.data_ptr() in seen:raise ValueError('shared adapted weights require separate verification')
+        seen.add(weight.data_ptr())
+        if any(value.dtype!=torch.float32 or not torch.isfinite(value).all() for value in (weight,a,b)):raise ValueError('finite FP32 base and adapter weights required')
+    with torch.no_grad():
+        for layer in layers:
+            weight=layer.get_base_layer().weight
+            delta=(layer.lora_B['default'].weight.double()@layer.lora_A['default'].weight.double())*layer.scaling['default']
+            value=weight.double()+delta
+            if not torch.isfinite(value).all():raise ValueError('nonfinite FP64 merge arithmetic')
+            rounded=value.to(weight.dtype)
+            if not torch.isfinite(rounded).all():raise ValueError('nonfinite FP32 merged weight')
+            weight.copy_(rounded)
+    return model.unload(),dict(accumulation_dtype='float64',output_dtype='float32',linear_layers=len(layers),single_final_cast=True)
+
+
 def worker(plan_path,sha256,out):
     payload=Path(plan_path).read_bytes()
     if hashlib.sha256(payload).hexdigest()!=sha256:
@@ -80,7 +113,10 @@ def worker(plan_path,sha256,out):
     model.to(plan['device'])
     model=PeftModel.from_pretrained(model,plan['adapter_path'],local_files_only=True,is_trainable=False)
     model.eval()
-    merged=model.merge_and_unload(safe_merge=True)
+    arithmetic=dict(accumulation_dtype='native',output_dtype=plan['dtype'])
+    if plan.get('merge_accumulation','native')=='float64':
+        merged,arithmetic=merge_with_float64_accumulation(model)
+    else:merged=model.merge_and_unload(safe_merge=True)
     tensor_bytes=sum(tensor.numel()*tensor.element_size() for tensor in merged.state_dict().values())
     if tensor_bytes>plan['max_export_bytes']:
         raise ValueError('merged tensors exceed export byte budget')
@@ -94,7 +130,7 @@ def worker(plan_path,sha256,out):
     actual_bytes=sum(path.stat().st_size for path in target.rglob('*') if path.is_file())
     if actual_bytes>plan['max_export_bytes']:
         raise ValueError('saved model exceeds export byte budget; partial artifacts retained')
-    report=dict(source,peak_allocated_bytes=torch.cuda.max_memory_allocated() if plan['device']=='cuda' else None,exported_checkpoint_sha256=checkpoint_fingerprint(target)['checkpoint_sha256'],model_path=str(target.resolve()),export_bytes=actual_bytes,merged=True,passed=False,
+    report=dict(source,merge_arithmetic=arithmetic,peak_allocated_bytes=torch.cuda.max_memory_allocated() if plan['device']=='cuda' else None,exported_checkpoint_sha256=checkpoint_fingerprint(target)['checkpoint_sha256'],model_path=str(target.resolve()),export_bytes=actual_bytes,merged=True,passed=False,
                 equivalence={'logits':'pending','generation':'pending','tool_behavior':'pending'})
     write_json(root/'merge_result.json',report)
     return report

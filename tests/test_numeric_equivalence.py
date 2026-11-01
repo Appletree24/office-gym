@@ -51,6 +51,12 @@ class NumericalEquivalenceTests(unittest.TestCase):
             plan=dict(merge_plan=str(merge_plan_path),merge_plan_sha256=sha(merge_plan_path),merge_result=str(merged_record_path),merge_result_sha256=sha(merged_record_path),probes=str(probes),probes_sha256=sha(probes),logit_atol=.01,min_generation_match_rate=1.,max_cases=1,max_input_tokens=2,max_new_tokens=2,max_wall_seconds=60,max_probe_logits_elements=8)
             self.assertEqual(len(validate(plan)[2]),1)
             self.assertEqual(len(validate({**plan,'attention_backend':'math'})[2]),1)
+            merge_plan['merge_accumulation']='float64';merge_plan_path.write_text(json.dumps(merge_plan))
+            changed={**plan,'merge_plan_sha256':sha(merge_plan_path)}
+            with self.assertRaisesRegex(ValueError,'merge arithmetic'):validate(changed)
+            merge_plan.pop('merge_accumulation');merge_plan_path.write_text(json.dumps(merge_plan))
+            plan['merge_plan_sha256']=sha(merge_plan_path)
+
             with self.assertRaisesRegex(ValueError,'attention backend'):
                 validate({**plan,'attention_backend':'unknown'})
             with self.assertRaisesRegex(ValueError,'allocation exceeds'):
