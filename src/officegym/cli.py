@@ -100,7 +100,24 @@ def main():
     freeze.add_argument('--out',required=True)
     verify = commands.add_parser('verify-dataset-freeze',help='Verify frozen data, calibration artifacts and implementation hashes')
     verify.add_argument('--freeze',required=True)
+    matrix = commands.add_parser('evaluate-matrix',help='Execute a frozen matrix under persistent global episode/token caps')
+    matrix.add_argument('--manifest',required=True)
+    matrix.add_argument('--plan',required=True)
+    matrix.add_argument('--configs',required=True,help='JSON mapping each priority group to its local service config path')
+    matrix.add_argument('--dataset-freeze',required=True)
+    matrix.add_argument('--out',required=True)
+    matrix.add_argument('--priority',choices=('P0','P1'),default='P0')
+    matrix.add_argument('--splits',default='id_test,combo_test,unseen_test')
+    matrix.add_argument('--max-runs',type=int,required=True)
+    matrix.add_argument('--max-generated-tokens',type=int,required=True)
+    matrix.add_argument('--resume',action='store_true')
     args = parser.parse_args()
+    if args.command == 'evaluate-matrix':
+        from officegym.eval.matrix import evaluate_matrix
+        report=evaluate_matrix(args.manifest,args.plan,args.configs,args.dataset_freeze,args.out,priority=args.priority,splits=tuple(args.splits.split(',')),max_runs=args.max_runs,max_generated_tokens=args.max_generated_tokens,resume=args.resume)
+        print(json.dumps(report,indent=2))
+        if not report['complete']:raise SystemExit(2)
+        return
     if args.command == 'freeze':
         from officegym.tasks.freeze import freeze_dataset
         report=freeze_dataset(args.dataset,args.grader,args.calibration_plan,args.calibration_results,args.out,min_success_rate=args.min_success_rate,max_success_rate=args.max_success_rate)
