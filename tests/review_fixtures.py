@@ -37,22 +37,18 @@ def bind_authored_sources(data,manifest):
     from test_mask_review import FixtureTokenizer
     class Tokenizer(FixtureTokenizer):
         def __call__(self,messages,tools):
-            index=int(messages[0]['content'].split(':')[0])
+            index=int(json.loads(messages[1]['content'])['title'].rsplit('-',1)[1])
             return dict(input_ids=[index+10,2,3],assistant_mask=[0,1,0],token_roles=['user','assistant','tool'])
     tokenizer=Tokenizer()
     conversations=[json.loads(line) for line in (data/'conversations.jsonl').read_text().splitlines()]
     samples=[];recovered=[];accepted=[]
     for index,conversation in enumerate(conversations):
         path=(data/f'authored_teacher_parser_fixture_{index}').resolve();path.mkdir()
-        messages=conversation['messages'];messages[0]['content']=str(index)+':AUTHORED PROTOCOL FIXTURE, NOT MODEL DATA'
         evidence=dict(version=ISOLATION_VERSION,verified=True,uid=65534,gid=65534,groups=[],no_new_privs=True,dumpable=0,cannot_regain_root=True,grader_unavailable=True,root_entries=[],inherited_descriptors=[0,1,2],parent_death_signal='SIGKILL',environment_empty=True,protected_paths_denied=['/authored-fixture/'+str(i) for i in range(5)])
         result=dict(source_kind='AUTHORED_SOFTWARE_FIXTURE_NOT_MODEL_OR_ISOLATION_PROOF',split='train',policy_kind='inference_service',instance_id=conversation['instance_id'],model_version='authored-fixture',grade=dict(full_success=True,eval_grader_version=EVAL_GRADER_VERSION,reward_version=REWARD_VERSION),termination=dict(state='DECLARED_DONE'),operation_audit=dict(consistent=True),policy_isolation=evidence)
-        from teacher_world_fixtures import bind_world_fixture
-        bind_world_fixture(path,result)
-        records=[dict(kind='run_header',harness_version=HARNESS_VERSION,mode='full',model_version='authored-fixture',initial_messages=messages[:1],tool_schemas=[])]
-        for turn in range(2):
-            assistant,observation=messages[1+2*turn:3+2*turn];call=assistant['tool_call'];action=str(turn)
-            records.extend([dict(kind='model_response',tool=call['name'],arguments=call['arguments'],raw={'authored_software_fixture':True},content=None),dict(kind='action_start',action_id=action,tool=call['name'],arguments=call['arguments']),dict(kind='interaction',action_id=action,messages=[assistant,observation])])
+        from teacher_world_fixtures import bind_world_fixture,trace_fixture
+        public,actions=bind_world_fixture(path,result)
+        records=trace_fixture(public,actions,'authored-fixture')
         for name,payload in [('result.json',result),('policy_isolation.json',evidence)]:
             (path/name).write_text(canonical(payload)+'\n')
         (path/'trajectory.jsonl').write_text(''.join(canonical(row)+'\n' for row in records))

@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from officegym.training.teacher import extract_trajectory
 from officegym.training.data import RejectedTrajectory
@@ -17,7 +18,8 @@ class TeacherExtractTests(unittest.TestCase):
             with self.assertRaisesRegex(RejectedTrajectory,'not_a_model'):
                 extract_trajectory(root)
 
-    def test_fixture_response_action_and_training_messages_must_match(self):
+    @patch('officegym.training.teacher_world.verify_teacher_trace')
+    def test_fixture_response_action_and_training_messages_must_match(self,replay_gate):
         # Entire episode is an authored protocol fixture, not model evidence.
         from officegym.graders.versions import EVAL_GRADER_VERSION,REWARD_VERSION
         from officegym.harness.versions import HARNESS_VERSION

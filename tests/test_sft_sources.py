@@ -56,3 +56,23 @@ class SFTSourceTests(unittest.TestCase):
             self.assertEqual(verify_sources(root/'built',built)['training_tokens'],15)
             self.assertEqual(built['manual_alignment_review_status'],'pending')
             self.assertTrue(all(set(row['source_files_sha256'])=={'result.json','trajectory.jsonl','policy_isolation.json','task.json','private_spec.json','event_rules.json','initial_world.sqlite','world.sqlite'} for row in built['accepted']))
+
+    def test_replay_rejects_changed_observations_prompt_schema_and_write_keys(self):
+        from officegym.training.teacher import extract_trajectory
+        from officegym.training.data import RejectedTrajectory
+        import copy
+        with tempfile.TemporaryDirectory() as directory:
+            data=Path(directory)/'data';fixture(data);manifest=json.loads((data/'manifest.json').read_text());bind_authored_sources(data,manifest)
+            source=Path(manifest['accepted'][0]['source_run']);path=source/'trajectory.jsonl';original=[json.loads(line) for line in path.read_text().splitlines()]
+            extract_trajectory(source)
+            for fault in ('observation','prompt','schema','write_key'):
+                rows=copy.deepcopy(original)
+                if fault=='observation':
+                    row=next(r for r in rows if r['kind']=='interaction');observation=json.loads(row['messages'][1]['content']);observation['meta']['sim_time']+=1;row['messages'][1]['content']=canonical(observation)
+                elif fault=='prompt':rows[0]['initial_messages'][1]['content']='Different public task'
+                elif fault=='schema':rows[0]['tool_schemas']=[]
+                else:
+                    for row in rows:
+                        if row['kind'] in ('action_start','interaction') and row.get('operation_id')=='create':row['operation_id']='different_key'
+                path.write_text(''.join(canonical(row)+'\n' for row in rows))
+                with self.subTest(fault=fault),self.assertRaisesRegex(RejectedTrajectory,'teacher_trace_replay_invalid'):extract_trajectory(source)

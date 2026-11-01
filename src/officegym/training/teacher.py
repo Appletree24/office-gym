@@ -74,6 +74,8 @@ def extract_trajectory(run_dir):
             messages.append(row['message'])
     if pending or response is not None:
         raise RejectedTrajectory('unresolved_operations')
+    from .teacher_world import verify_teacher_trace
+    verify_teacher_trace(root,records)
     trajectory = dict(instance_id=result['instance_id'],split='train',grade=result['grade'],messages=messages,tools=header['tool_schemas'],
                       model_version=result['model_version'],harness_version=HARNESS_VERSION,compacted=False,recovered=False,source_trace_sha256=hashlib.sha256(trace_path.read_bytes()).hexdigest())
     trajectory['conversation'] = render_messages(messages)
