@@ -273,3 +273,8 @@ Teacher 和 RS-SFT 采样现在会在保存的 resolved_sampling_config 中强�
 启用后，数据必须恰好十六个不同样本，仍需通过正常的 teacher 来源、长度、mask 和五样本人工审查检查。同一任务的不同轨迹可作为不同样本，不能用相同样本重复补齐数量。训练前后以 eval/no_grad 模式、相同原始会话和 assistant labels 测量，按因果移位仅累计被监督 token，逐块计算 FP32 交叉熵及 token／全序列准确率，保存 overfit_before.json、overfit_after.json 和 overfit_result.json，并写入训练证据。训练后检查还要求实际发生 optimizer update；失败阈值会如实保留为 passed=false，独立 dev 评测始终另记 pending，不自动视为环境成功。
 
 测量在样本及计算块边界检查独立时限和训练总时限；单次模型 forward 不能被该 Python 检查抢占，运行时仍应沿用外层资源 watchdog。当前 `artifacts/overfit_measurement_cpu_fixture_v1` 只验证作者构造 logits 的数值、mask 与模式恢复，没有加载真实模型权重、没有 optimizer update，也不满足手册的真实十六样本过拟合要求。真实完整训练路径尚待获得经审查的 teacher 数据后执行。
+
+
+SFT 构建 manifest 现在为每条接收样本保存源运行目录中 `result.json`、`trajectory.jsonl`、`policy_isolation.json` 的 SHA256。SFT／RS-SFT 训练预检及后续训练血缘验证会重新核对这三个文件，并通过原有 teacher 提取器重新验证当前 Harness／grader 版本、完整成功、隔离证据及无压缩／恢复等条件，要求提取出的原始会话与 conversations.jsonl 完全一致。还核对 source_run、轨迹哈希、样本 ID、mask／label、长度、token 总量，拒绝重复运行路径和重复 token 序列。
+
+因此需要保留每条样本的原始运行证据及原路径；旧版数据 manifest 若缺来源文件清单，必须从保留的原始运行重建并重新人工审查，不能直接补一个 passed 字段。此检查证明保存的来源证据和训练数据相符，不提供独立供应商身份认证，也不能从可编辑本地文件证明真实外部调用；软件夹具的结构验收不能写成真实 teacher 证据。

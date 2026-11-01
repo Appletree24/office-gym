@@ -10,6 +10,7 @@ from officegym.harness.tokenizer import PromptTokenizer
 from .teacher import extract_trajectory
 from .tokenizer import SFTTokenizer
 from .data import build_sample,RejectedTrajectory
+from .sft_sources import source_hashes
 
 
 def build_dataset(run_dirs,out,tokenizer,*,max_length=8192,tokenizer_manifest):
@@ -36,7 +37,7 @@ def build_dataset(run_dirs,out,tokenizer,*,max_length=8192,tokenizer_manifest):
                 sample['source_run'] = str(path)
                 samples.write(canonical(sample)+'\n')
                 conversations.write(canonical(trajectory)+'\n')
-                accepted.append({'instance_id':sample['instance_id'],'source_run':str(path),'tokens':len(sample['input_ids']),'trajectory_sha256':sample['trajectory_sha256']})
+                accepted.append({'source_files_sha256':source_hashes(path),'instance_id':sample['instance_id'],'source_run':str(path),'tokens':len(sample['input_ids']),'trajectory_sha256':sample['trajectory_sha256']})
                 if alignments<5:
                     for position,(token,role,mask) in enumerate(zip(sample['input_ids'],sample['token_roles'],sample['assistant_mask'])):
                         review.write(canonical(dict(instance_id=sample['instance_id'],position=position,token_id=token,role=role,loss_mask=mask))+'\n')

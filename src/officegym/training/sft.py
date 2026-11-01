@@ -52,6 +52,8 @@ def validate_plan(plan,data_dir):
         raise ValueError('SFT sample hash mismatch')
     from .review_admission import require_review
     require_review(data_dir,manifest)
+    from .sft_sources import verify_sources
+    verify_sources(data_dir,manifest)
     if 'overfit_check' in plan:
         from .overfit import validate_config,validate_rows
         validate_config(plan['overfit_check'])
