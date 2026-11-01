@@ -23,6 +23,7 @@ def main():
     dataset.add_argument('--manifest',required=True)
     generate = commands.add_parser('generate',help='Generate implemented templates with verified reference artifacts')
     generate.add_argument('--out',required=True)
+    generate.add_argument('--config',help='Assemble the full configured development distribution')
     generate.add_argument('--templates',default='T01,T02,T03,T04,T05,T06,T07,T08')
     generate.add_argument('--count-per-template',type=int,default=3)
     generate.add_argument('--seed',type=int,default=None)
@@ -100,6 +101,14 @@ def main():
     if args.command == 'reference':
         from officegym.tasks.replay import reference_manifest
         print(json.dumps(reference_manifest(args.manifest,args.out),indent=2))
+    if args.command == 'generate' and args.config:
+        import sys
+        tuning={'--templates','--count-per-template','--seed','--depth-level','--perturbation-level','--heldout-combo','--split'}
+        if any(arg.split('=',1)[0] in tuning for arg in sys.argv[1:]):
+            parser.error('--config cannot be combined with individual template generation options')
+        from officegym.tasks.assemble import assemble
+        print(json.dumps(assemble(args.config,args.out),indent=2))
+        return
     if args.command == 'generate':
         from officegym.tasks.generate import generate
         manifest = generate(args.out,args.templates.split(','),args.count_per_template,args.seed,args.split,heldout_combo=args.heldout_combo,depth_level=args.depth_level,perturbation_level=args.perturbation_level)
