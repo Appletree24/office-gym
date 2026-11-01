@@ -8,8 +8,8 @@ class DependencyTests(unittest.TestCase):
         from officegym.tasks.integrity import dependency_width
         nodes=['plan','collect_replies','confirm','invite','meeting_end','minutes','todos']
         edges=dependency_edges(nodes)
-        self.assertIn(('collect_replies','plan'),edges)
-        self.assertEqual(dependency_depth(nodes,edges),7);self.assertEqual(dependency_width(nodes,edges),1)
+        self.assertIn(('collect_replies','invite'),edges)
+        self.assertEqual(dependency_depth(nodes,edges),6);self.assertEqual(dependency_width(nodes,edges),2)
         with self.assertRaisesRegex(ValueError,'optional material'):
             dependency_edges(nodes+['read_material'])
 

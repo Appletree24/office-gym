@@ -65,7 +65,7 @@ def regrade(manifest_path,out,*,max_wall_seconds=180,repair_optional_material=Fa
         from .dependencies import GENERATOR_VERSION
         manifest['task_generator_version']=GENERATOR_VERSION
         manifest['limitations']=[item for item in manifest.get('limitations',[]) if not item.startswith('DAG width is 1 at controlled D1')]
-        manifest['limitations'].append('Optional material reads are excluded; controlled-scan width is 1. Other DAG paths still require causal audit.')
+        manifest['limitations'].append('Reply collection precedes invitation, not proposal/approval. Required width can be 2; controlled depth scans need matching-width redesign or stratification before freezing.')
     manifest['rescoring']=dict(source_manifest=str(source),source_manifest_sha256=original_sha,eval_grader_version=EVAL_GRADER_VERSION,reward_version=REWARD_VERSION,task_inputs_unchanged=not metadata_changed,public_business_inputs_unchanged=True,task_metadata_reannotated=metadata_changed)
     (root/'manifest.json').write_text(canonical(manifest)+'\n')
     report=dict(kind='development-reference-rescoring-not-model-results',instances=len(records),reference_passed=sum(row['full_success'] for row in records),operation_audits_passed=sum(row['operation_consistent'] for row in records),eval_grader_version=EVAL_GRADER_VERSION,reward_version=REWARD_VERSION,source_manifest_sha256=original_sha,task_inputs_unchanged=not metadata_changed,public_business_inputs_unchanged=True,task_metadata_reannotated=metadata_changed,wall_cap_seconds=max_wall_seconds)
@@ -78,5 +78,5 @@ def regrade(manifest_path,out,*,max_wall_seconds=180,repair_optional_material=Fa
 
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--manifest',required=True);parser.add_argument('--out',required=True);parser.add_argument('--max-wall-seconds',type=float,default=180);parser.add_argument('--repair-optional-observations','--repair-optional-material',dest='repair_optional_material',action='store_true');args=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--manifest',required=True);parser.add_argument('--out',required=True);parser.add_argument('--max-wall-seconds',type=float,default=180);parser.add_argument('--repair-dependencies','--repair-optional-observations','--repair-optional-material',dest='repair_optional_material',action='store_true');args=parser.parse_args()
     print(json.dumps(regrade(args.manifest,args.out,max_wall_seconds=args.max_wall_seconds,repair_optional_material=args.repair_optional_material),indent=2))

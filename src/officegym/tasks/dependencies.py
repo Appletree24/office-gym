@@ -1,8 +1,8 @@
 """Dependency edges express prerequisites, not one solver's chosen ordering."""
 
 
-GENERATOR_VERSION='generator-v5-optional-observation-scope'
-ANNOTATION_VERSION='required-dependency-annotation-v3'
+GENERATOR_VERSION='generator-v6-replies-before-invitation'
+ANNOTATION_VERSION='required-dependency-annotation-v4'
 
 
 def dependency_edges(nodes):
@@ -15,7 +15,7 @@ def dependency_edges(nodes):
     edges = list(zip(core,core[1:]))
     for stage in nodes:
         if stage in preparation:
-            target = 'confirm' if stage=='read_handoff_chain' and 'confirm' in nodes else 'plan'
+            target = 'invite'
             edges.append((stage,target))
     return edges
 
