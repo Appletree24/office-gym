@@ -5,11 +5,13 @@ from officegym.env.world import canonical as canonical_followup
 
 REFERENCE_VERSION='reference-v4-proposal-bound-availability'
 PROPOSAL_REFERENCE_VARIANT='reference-v4-proposal-bound-availability'
+PUBLIC_WAKEUP_VARIANT='reference-v4-public-wakeup-heuristic'
 PUBLIC_MATERIAL_VARIANT='reference-v3-public-material-refs-only-v1'
 PUBLIC_HANDOFF_VARIANT='reference-v3-unique-public-other-approver-v1'
 
 
-def solve(task, call, *, material_observations=True, handoff_observations=True):
+def solve(task, call, *, material_observations=True, handoff_observations=True, public_wakeup_heuristic=False):
+    if type(public_wakeup_heuristic) is not bool or public_wakeup_heuristic and not task.get('proposal_bound_availability'):raise ValueError('public wakeup heuristic requires a proposal-bound task')
     if type(handoff_observations) is not bool:raise ValueError('explicit handoff observation boolean required')
     if type(material_observations) is not bool:raise ValueError('explicit material observation boolean required')
     counter = 0
@@ -22,7 +24,7 @@ def solve(task, call, *, material_observations=True, handoff_observations=True):
         if not result['ok']:
             raise RuntimeError(result)
         return result['data']
-    invoke('office.get_context',{})
+    if not public_wakeup_heuristic:invoke('office.get_context',{})
     handoff_approver = None
     if task.get('handoff_thread_id'):
         if handoff_observations:
@@ -81,12 +83,15 @@ def solve(task, call, *, material_observations=True, handoff_observations=True):
             start,end = max(start,left),min(end,right)
     duration = task.get('duration_seconds',1800)
     if task.get('proposal_bound_availability'):start=(start+end-duration)//2
-    busy = invoke('calendar.query',dict(person_ids=people,start_at=start,end_at=end))
-    while busy.get('next_cursor'):
-        following = invoke('calendar.query',dict(person_ids=people,start_at=start,end_at=end,cursor=busy['next_cursor']))
-        busy['items'].extend(following['items'])
-        busy['next_cursor'] = following['next_cursor']
-    intervals = sorted((row['start_at'],row['end_at']) for row in busy['items'])
+    if public_wakeup_heuristic:
+        intervals=[]
+    else:
+        busy = invoke('calendar.query',dict(person_ids=people,start_at=start,end_at=end))
+        while busy.get('next_cursor'):
+            following = invoke('calendar.query',dict(person_ids=people,start_at=start,end_at=end,cursor=busy['next_cursor']))
+            busy['items'].extend(following['items'])
+            busy['next_cursor'] = following['next_cursor']
+        intervals = sorted((row['start_at'],row['end_at']) for row in busy['items'])
     for left,right in intervals:
         if start+duration <= left:
             break
@@ -108,26 +113,32 @@ def solve(task, call, *, material_observations=True, handoff_observations=True):
     def confirm(meeting):
         if task.get('proposal_bound_availability'):
             sent=invoke('mail.send',dict(recipient_ids=people,kind='coordination',subject='Proposal availability',body='Please confirm availability for this proposal',meeting_id=meeting['id'],meeting_version=meeting['version'],request={'type':'availability','meeting_id':meeting['id'],'meeting_version':meeting['version']}),True)
-            facts={};after=sent['message_id']
-            for _ in range(20):
+            if public_wakeup_heuristic:
                 invoke('clock.wait',{'until':task['deadline_at']})
+            else:
+                facts={};after=sent['message_id']
                 for _ in range(20):
-                    thread=invoke('mail.get_thread',{'thread_id':sent['message_id'],'after_message_id':after})
-                    for message in thread['items']:
-                        if message['kind']=='reply' and message['sender_id'] in people:
-                            body=json.loads(message['body'])
-                            if body.get('response')=='provided':facts[message['sender_id']]=body['facts']
-                    if thread['items']:after=thread['items'][-1]['id']
-                    if not thread.get('next_message_id'):break
-                else:raise RuntimeError('proposal reply pagination budget exhausted')
-                if all(person in facts for person in people):break
-            else:raise RuntimeError('proposal availability replies unavailable')
-            if not all(any(left<=meeting['start_at'] and meeting['end_at']<=right for left,right in facts[person].get('available_windows',[])) for person in people):
-                raise RuntimeError('public proposal slot not supported by actual replies')
+                    invoke('clock.wait',{'until':task['deadline_at']})
+                    for _ in range(20):
+                        thread=invoke('mail.get_thread',{'thread_id':sent['message_id'],'after_message_id':after})
+                        for message in thread['items']:
+                            if message['kind']=='reply' and message['sender_id'] in people:
+                                body=json.loads(message['body'])
+                                if body.get('response')=='provided':facts[message['sender_id']]=body['facts']
+                        if thread['items']:after=thread['items'][-1]['id']
+                        if not thread.get('next_message_id'):break
+                    else:raise RuntimeError('proposal reply pagination budget exhausted')
+                    if all(person in facts for person in people):break
+                else:raise RuntimeError('proposal availability replies unavailable')
+                if not all(any(left<=meeting['start_at'] and meeting['end_at']<=right for left,right in facts[person].get('available_windows',[])) for person in people):
+                    raise RuntimeError('public proposal slot not supported by actual replies')
         approval_id = None
         if task.get('requires_approval'):
             approval = invoke('approvals.request',dict(approver_id=approver_id,meeting_id=meeting['id'],meeting_version=meeting['version']),True)
             approval_id = approval['approval_id']
+            if public_wakeup_heuristic:
+                invoke('clock.wait',{'until':task['deadline_at']})
+                return approval_id
             status=approval
             for _ in range(20):
                 if status['status']=='pending':
@@ -190,7 +201,7 @@ def solve(task, call, *, material_observations=True, handoff_observations=True):
             if sim_time >= task['monitor_until'] and len(events['items']) < 50:
                 break
             if sim_time < task['monitor_until']:
-                invoke('clock.wait',{'until':task['monitor_until']})
+                invoke('clock.wait',{'until':task['deadline_at'] if public_wakeup_heuristic and task.get('followup_required') else task['monitor_until']})
         else:
             raise RuntimeError('monitoring reference budget exhausted')
     if task.get('followup_required'):
