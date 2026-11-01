@@ -208,5 +208,7 @@ def generate_cases(out):
     cases.extend(generate_conflict_cases(root))
     from .material_cases import generate_material_cases
     cases.extend(generate_material_cases(root))
+    from .proposal_cases import generate_proposal_cases
+    cases.extend(generate_proposal_cases(root))
     (root/'cases.json').write_text(canonical(cases))
     return len(cases)
