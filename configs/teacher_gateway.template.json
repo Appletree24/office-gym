@@ -1,0 +1,21 @@
+{
+  "endpoint": "https://SET_PROVIDER_ENDPOINT/v1/chat/completions",
+  "model": "SET_BY_OPERATOR",
+  "model_version": "SET_TO_EXACT_PROVIDER_RESPONSE_MODEL_ID",
+  "api_key_env": "OFFICEGYM_TEACHER_API_KEY",
+  "gateway_key_env": "OFFICEGYM_TEACHER_GATEWAY_KEY",
+  "ledger_path": "SET_ABSOLUTE_API_LEDGER_PATH",
+  "pricing": {
+    "max_cost_usd": "SET_TOTAL_TOKEN_PRICE_BUDGET",
+    "input_usd_per_million": "SET_INPUT_PRICE_UPPER_BOUND",
+    "output_usd_per_million": "SET_OUTPUT_PRICE_UPPER_BOUND",
+    "usage_contract": "total_billable_prompt_and_completion_tokens",
+    "source": "SET_PRICING_SOURCE",
+    "as_of_utc": "SET_PRICING_TIMESTAMP_WITH_TIMEZONE"
+  },
+  "max_requests": "SET_FINITE_REQUEST_CAP",
+  "max_input_tokens": "SET_PROVIDER_BILLABLE_INPUT_BOUND",
+  "max_output_tokens": "SET_PROVIDER_COMPLETION_BOUND_INCLUDING_REASONING",
+  "max_wall_seconds": "SET_GATEWAY_LIFETIME_SECONDS",
+  "request_timeout_seconds": "SET_REQUEST_TIMEOUT_SECONDS"
+}

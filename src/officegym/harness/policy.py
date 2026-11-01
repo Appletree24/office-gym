@@ -82,6 +82,12 @@ class ChatPolicy:
         if tools is not None:
             payload.update(tools=[{'type':'function','function':{'name':tool['name'],'description':tool['description'],'parameters':tool['inputSchema']}} for tool in tools],tool_choice=self.tool_choice,parallel_tool_calls=False)
         response = self.transport(payload,remaining['wall_seconds'])
+        gateway=response.get('_officegym_gateway')
+        if gateway is not None:
+            if not isinstance(gateway,dict):raise ValueError('malformed gateway provenance')
+            if gateway.get('source_kind')=='software_fixture' and self.policy_kind!='software_fixture':
+                raise ValueError('software gateway fixture cannot become a measured model trajectory')
+            if gateway.get('model_version')!=self.model_version:raise ValueError('gateway model version differs from configured model identity')
         usage = response.get('usage',{})
         if any(type(usage.get(key)) is not int or usage[key]<0 for key in ('prompt_tokens','completion_tokens')):
             raise ValueError('missing measured model token usage')

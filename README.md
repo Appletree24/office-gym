@@ -209,3 +209,14 @@ Native sampling records also carry known terminal-reported tool calls and the nu
 `python -m officegym.training.merge_weight_audit --plan /absolute/merge_plan.json --result /absolute/merge_result.json --out /absolute/weight_audit` audits supported FP32 vanilla linear-LoRA weights on CPU. It streams tensor rows, rechecks source fingerprints, verifies untouched weights and reports FP64 merge-reference error against a normal-FP32 roundoff envelope. Its 300s/4GiB-RSS/10MiB-output supervisor bounds are fixed. Passing this diagnostic does not pass logits/generation/tool equivalence or formal export admission.
 
 A merge plan may explicitly set `merge_accumulation: "float64"` for supported default-adapter vanilla linear LoRA with FP32 output. This computes delta and base addition in FP64 before one final FP32 conversion; the default remains the native PEFT merge. `officegym.training.precise_merge_probe` adds owned GPU/disk/artifact supervision for this candidate path. The existing three-input numerical gate still fails on the inspected backend fixture even with single-round weights; neither this option nor the weight audit is an accepted SFT export.
+
+
+教师 API 费用网关已提供配置模板 [teacher_gateway.template.json](configs/teacher_gateway.template.json)。操作者必须先填写固定 HTTPS 地址、请求模型与供应商响应中的精确模型版本、有限请求/token/费用/墙钟预算，以及带日期和来源的十进制价格上界；模板不能直接启动。上游密钥和本地网关密钥分别通过模板指定的两个环境变量提供，密钥值不写入配置或账本。启动命令：
+
+```bash
+PYTHONPATH=src .venv/bin/python -m officegym.training.teacher_gateway --config /absolute/operator-gateway.json
+```
+
+将打印的 loopback endpoint、相同 model/model_version 和本地 gateway_key_env 填入已有 ChatPolicy 采样配置。上游凭据只由可信网关读取。认证后的 GET `/budget` 可读取账本汇总。SQLite 账本在发出请求前原子预留全额输入上限及本次输出上限的费用；并发调用共享账本，重启保留消耗且拒绝改变原账本策略。确认的 usage 可释放未用预留；超时、缺失 usage 等未知消耗保留全额预留。模型版本或 token 上限违约记录后阻止后续请求。网关不自动重试、不跟随重定向，并限制启动后的服务寿命。
+
+此费用口径是所声明 token 价格的上界，不是供应商账单。供应商必须以 prompt_tokens/completion_tokens 返回全部计费 token（包括推理 token），且遵守所填上下限；字节及 framing 检查不是通用 tokenizer 证明。价格需覆盖所选服务档位等 token 费用，税费、非 token 费用和供应商违约不在保证范围内。这里只验证了软件上游、真实本地 HTTP、并发及重启协议；尚未核实真实供应商兼容性。软件 fixture 网关会标记来源，真实 ChatPolicy 拒绝用它生成 teacher 数据。真实 teacher 选择、费用预算及采样仍待提供，当前没有付费调用。
