@@ -158,7 +158,9 @@ def solve(task, call, *, material_observations=True, handoff_observations=True, 
     owner_changes = []
     def poll_events():
         nonlocal cursor
-        events = invoke('events.poll',{'after_seq':cursor})
+        query={'after_seq':cursor}
+        if public_wakeup_heuristic:query['kinds']=['MeetingRescheduleRequested','AttendeeChanged','DocumentVersionPublished','MinutesAvailable','Notification']
+        events = invoke('events.poll',query)
         cursor = events['next_seq']
         for event in events['items']:
             if event['kind']=='MinutesAvailable':
