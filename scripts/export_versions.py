@@ -48,4 +48,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     path = Path(args.out)
     path.parent.mkdir(parents=True,exist_ok=True)
-    path.write_text(json.dumps(export(args.root),indent=2)+'\n')
+    record=export(args.root)
+    with path.open('x') as stream:
+        stream.write(json.dumps(record,indent=2)+'\n')

@@ -27,3 +27,17 @@ class VersionInventoryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             result=export(directory)
             self.assertEqual(result['file_sha256'],{});self.assertIsNone(result['git_commit']);self.assertIsNone(result['git_dirty']);self.assertIn('not a resolved runtime',result['scope'])
+
+    def test_cli_preserves_existing_version_evidence(self):
+        import subprocess
+        import sys
+        import json
+        script=Path(__file__).resolve().parents[1]/'scripts/export_versions.py'
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);destination=root/'versions.json'
+            command=[sys.executable,str(script),'--root',str(root),'--out',str(destination)]
+            first=subprocess.run(command,capture_output=True,text=True)
+            self.assertEqual(first.returncode,0,first.stderr)
+            original=destination.read_bytes();self.assertEqual(json.loads(original)['kind'],'software_version_manifest_not_experiment')
+            second=subprocess.run(command,capture_output=True,text=True)
+            self.assertNotEqual(second.returncode,0);self.assertIn('FileExistsError',second.stderr);self.assertEqual(destination.read_bytes(),original)
