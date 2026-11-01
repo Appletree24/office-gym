@@ -10,6 +10,7 @@ from officegym.harness.loop import Harness,Budget
 from officegym.harness.journal import Journal
 from officegym.graders.result import evaluate
 from officegym.graders.operations import reconcile
+from officegym.graders.completion import record_runtime_termination
 from .artifacts import write_json
 
 
@@ -120,9 +121,11 @@ def run_episode(instance_dir,out,policy,*,mode='full',budget=None,context_manage
                 process.join()
     grade = evaluate(world_path,{**public,**private},instance_dir/'initial_world.sqlite')
     audit = reconcile(world_path)
-    if termination['state'] in ('INFRA_ERROR','PARSE_ERROR','BUDGET_STOP','CONTEXT_OVERFLOW') or error or not audit['consistent']:
+    runtime_rejected=termination['state'] in ('INFRA_ERROR','PARSE_ERROR','BUDGET_STOP','CONTEXT_OVERFLOW') or bool(error) or not audit['consistent']
+    if runtime_rejected:
         grade['full_success'] = False
         grade['reward'] = -1.0 if grade['hard_violations'] else 0.0
+    grade=record_runtime_termination(grade,reason=termination['state'],source='harness_runtime',accepted=not runtime_rejected)
     result = dict(instance_id=task['instance_id'],split=task['split'],template_id=task['template_id'],mode=mode,
                   model_version=getattr(policy,'model_version',None),tool_choice=getattr(policy,'tool_choice',None),policy_kind=getattr(policy,'policy_kind','software_fixture'),termination=termination,grade=grade,operation_audit=audit,
                   policy_isolation=isolation_evidence,infrastructure_error=error,runner_wall_seconds=time.monotonic()-started,

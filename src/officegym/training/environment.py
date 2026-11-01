@@ -14,6 +14,7 @@ from officegym.tools.dispatcher import Dispatcher
 from officegym.tools.schema import WRITES
 from officegym.graders.result import evaluate
 from officegym.graders.operations import reconcile
+from officegym.graders.completion import record_runtime_termination
 from officegym.eval.artifacts import write_json
 from .data import validate_rollout
 from officegym.tasks.partitions import validate_partition
@@ -82,6 +83,7 @@ class RolloutEnvironment:
             if not audit['consistent']:
                 failures.append('operation_audit_inconsistent')
             grade.update(full_success=False,reward=-1.0 if grade['hard_violations'] else 0.0,failures=failures)
+        grade=record_runtime_termination(grade,reason=termination_reason,source='native_rollout',accepted=termination_reason=='policy_terminated' and audit['consistent'])
         self._graded = True
         result = {'reward':grade['reward'],'grade':grade,'domain_grade':domain_grade,'termination_reason':termination_reason,'operation_audit':audit,'final_state_hash':self._world.state_hash(),
                 'actor_version':actor_version,'tool_calls':self._client.meta('tool_calls'),'original_token_ids':list(input_ids),'response_mask':list(response_mask),'token_roles':list(token_roles),'original_logprobs':list(logprobs)}

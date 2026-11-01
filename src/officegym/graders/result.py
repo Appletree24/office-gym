@@ -6,6 +6,7 @@ from pathlib import Path
 from .replies import availability_replies
 from .creation_scope import unexpected_creations
 from .operations import reconcile
+from .completion import GRADE_SCHEMA_VERSION,world_completion
 
 
 def evaluate(world_path, spec, initial_path=None):
@@ -251,8 +252,13 @@ def evaluate(world_path, spec, initial_path=None):
         if cap is not None and 'message_cap_exceeded' in failures:
             severe.append('message_cap_exceeded')
         full_success = not failures and not severe
+        within_budget='deadline_exceeded' not in failures
+        declared_done=meta.get('finished',False)
+        checks=world_completion(outcome_ok=not failures,hard_violations=severe,soft_deviations=[],unexpected_mutations=unexpected,within_budget=within_budget,declared_done=declared_done)
+        world_reason='DEADLINE_EXCEEDED' if not within_budget else 'DECLARED_DONE' if declared_done else 'NOT_DECLARED_DONE'
         return {'outcome_ok':not failures,'hard_violations':sorted(set(severe)), 'soft_deviations':[], 'unexpected_mutations':unexpected, 'within_budget':'deadline_exceeded' not in failures, 'declared_done':meta.get('finished',False), 'full_success':full_success,'reward':-1.0 if severe else 1.0 if full_success else 0.0,
                 'failures':sorted(set(failures)),'severe_violations':sorted(set(severe)),
-                'reward_version':REWARD_VERSION,'eval_grader_version':EVAL_GRADER_VERSION}
+                'reward_version':REWARD_VERSION,'eval_grader_version':EVAL_GRADER_VERSION,
+                'grade_schema_version':GRADE_SCHEMA_VERSION,'terminated_reason':world_reason,'termination_reason_source':'world_snapshot','completion_checks':checks}
     finally:
         db.close()
