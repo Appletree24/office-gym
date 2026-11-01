@@ -183,6 +183,14 @@
     "dependency_width": {
       "type": "integer",
       "minimum": 1
+    },
+    "dataset_freeze_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "dataset_freeze_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
     }
   },
   "additionalProperties": true,

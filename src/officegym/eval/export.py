@@ -74,4 +74,22 @@ def result_row(run_dir,plan_row,dataset_manifest):
                artifact_path=str(root.resolve()),model_version=result['model_version'],synthetic=False,example_only=False)
     records=[json.loads(line) for line in (root/'trajectory.jsonl').read_text().splitlines() if line.strip()]
     row.update(context_metrics(records))
+    row.update(frozen_binding(root,manifest_path))
     return row
+
+
+def frozen_binding(run_dir,manifest_path):
+    """Carry verified batch admission into rows exported from original artifacts."""
+    selection_path=Path(run_dir).resolve().parent/'selection.json'
+    if not selection_path.exists():return {}
+    selection=json.loads(selection_path.read_text())
+    fields=('dataset_freeze_path','dataset_freeze_sha256')
+    if not any(field in selection for field in fields):return {}
+    if not all(isinstance(selection.get(field),str) and selection[field] for field in fields):
+        raise ValueError('incomplete batch dataset freeze binding')
+    from officegym.tasks.freeze import verify_frozen_dataset,digest
+    path=Path(selection['dataset_freeze_path']).resolve()
+    if digest(path)!=selection['dataset_freeze_sha256']:raise ValueError('batch dataset freeze receipt changed')
+    record=verify_frozen_dataset(path,manifest_path)
+    if selection.get('dataset_sha256')!=record['manifest_sha256']:raise ValueError('batch dataset differs from freeze')
+    return dict(dataset_freeze_path=str(path),dataset_freeze_sha256=selection['dataset_freeze_sha256'])

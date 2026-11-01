@@ -42,6 +42,7 @@ def evaluate_batch(manifest_path,plan_path,config_path,out,*,group,split,max_run
     selection = dict(group=group,split=split,plan_sha256=fingerprint,max_runs=max_runs,max_generated_tokens=max_generated_tokens,
                      config_sha256=hashlib.sha256(config_path.read_bytes()).hexdigest(),dataset_sha256=hashlib.sha256(manifest_path.read_bytes()).hexdigest())
     if dataset_freeze is not None:
+        selection['dataset_freeze_path']=str(Path(dataset_freeze).resolve())
         selection['dataset_freeze_sha256']=hashlib.sha256(Path(dataset_freeze).read_bytes()).hexdigest()
     if resume:
         if json.loads((root/'selection.json').read_text())!=selection:

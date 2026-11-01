@@ -237,6 +237,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--plan", type=Path, required=True, help="Frozen planned-run JSONL; never derive it from successful results")
+    parser.add_argument("--dataset-freeze",type=Path,help="Require frozen admission and re-export original runtime evidence")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--a", required=True)
     parser.add_argument("--b", required=True)
@@ -253,6 +254,9 @@ def main():
         if any(len(ids)>1 for ids in families.values()):
             raise ValueError("Related variants detected: use --cluster scenario_family_id")
     report = build_report(rows, args.a, args.b, args.split, args.cluster, args.bootstrap_samples)
+    if args.dataset_freeze is not None:
+        from .frozen_results import audit_frozen_results
+        report['frozen_evidence']=audit_frozen_results(rows,args.plan,args.dataset_freeze)
     args.out.mkdir(parents=True, exist_ok=True)
     report_path = args.out / f"{args.split}__{args.a}__{args.b}.json"
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
