@@ -111,7 +111,22 @@ def main():
     matrix.add_argument('--max-runs',type=int,required=True)
     matrix.add_argument('--max-generated-tokens',type=int,required=True)
     matrix.add_argument('--resume',action='store_true')
+    grpo_smoke = commands.add_parser('grpo-smoke',help='Execute a locked GRPO smoke; process success does not verify semantic smoke gates')
+    grpo_smoke.add_argument('--config',required=True,help='Resolved locked launch config, not the project intent plan')
+    grpo_smoke.add_argument('--out',required=True)
+    grpo_smoke.add_argument('--updates',type=int,required=True,help='Must equal locked max_updates and be at most five')
+    grpo_train = commands.add_parser('train-grpo',help='Launch admitted GRPO using the existing locked upstream runner')
+    grpo_train.add_argument('--config',required=True)
+    grpo_train.add_argument('--out',required=True)
     args = parser.parse_args()
+    if args.command in ('grpo-smoke','train-grpo'):
+        from officegym.training.launch import launch,launch_exit_code
+        smoke=args.command=='grpo-smoke'
+        status=launch(args.config,args.out,smoke,**({'expected_updates':args.updates} if smoke else {}))
+        print(json.dumps(status,indent=2))
+        code=launch_exit_code(status,smoke)
+        if code:raise SystemExit(code)
+        return
     if args.command == 'evaluate-matrix':
         from officegym.eval.matrix import evaluate_matrix
         report=evaluate_matrix(args.manifest,args.plan,args.configs,args.dataset_freeze,args.out,priority=args.priority,splits=tuple(args.splits.split(',')),max_runs=args.max_runs,max_generated_tokens=args.max_generated_tokens,resume=args.resume)

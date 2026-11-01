@@ -147,8 +147,12 @@ def execute_bounded(command,stdout,stderr,max_wall_seconds,*,own_process_group=T
     return {'exit_code':process.returncode,'wall_budget_exhausted':exhausted,'process_group_cleanup':own_process_group,'inherited_outer_process_group':not own_process_group}
 
 
-def launch(config_path,out,smoke=False):
+def launch(config_path,out,smoke=False,*,expected_updates=None):
+    if expected_updates is not None and (not smoke or type(expected_updates) is not int or not 1<=expected_updates<=5):
+        raise ValueError('explicit smoke updates must be an integer from one to five')
     config = json.loads(Path(config_path).read_text())
+    if expected_updates is not None and config.get('max_updates')!=expected_updates:
+        raise ValueError('resolved launch max_updates must exactly match requested smoke updates; no configuration override is allowed')
     command = validate_launch(config,smoke)
     for package in ('torch','transformers','verl','vllm'):
         if importlib.metadata.version(package)!=config['locked_packages'].get(package):
@@ -190,6 +194,13 @@ def launch(config_path,out,smoke=False):
     return status
 
 
+def launch_exit_code(status,smoke=False):
+    if status.get('exit_code')!=0 or status.get('wall_budget_exhausted') or status.get('process_tree_cleanup') is not True:
+        return 1
+    if smoke and status.get('semantic_smoke_verification')!='verified':return 2
+    return 0
+
+
 if __name__=='__main__':
     import argparse
     parser = argparse.ArgumentParser()
@@ -197,4 +208,6 @@ if __name__=='__main__':
     parser.add_argument('--out',required=True)
     parser.add_argument('--smoke',action='store_true')
     args = parser.parse_args()
-    print(json.dumps(launch(args.config,args.out,args.smoke),indent=2))
+    status=launch(args.config,args.out,args.smoke)
+    print(json.dumps(status,indent=2))
+    raise SystemExit(launch_exit_code(status,args.smoke))

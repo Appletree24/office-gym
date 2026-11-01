@@ -127,3 +127,31 @@ class LaunchTests(unittest.TestCase):
             path.write_text('{}')
             with self.assertRaisesRegex(ValueError,'changed before execution'):
                 load_resolved(path,checksum)
+
+    def test_explicit_smoke_update_request_cannot_override_locked_launch(self):
+        import json,tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        from officegym.training.launch import launch
+        for updates in (0,6,True,float('nan'),'5'):
+            with self.subTest(updates=updates),self.assertRaisesRegex(ValueError,'one to five'):
+                launch('missing','missing',True,expected_updates=updates)
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);config=root/'launch.json';config.write_text(json.dumps({'max_updates':4}))
+            with patch('officegym.training.launch.validate_launch') as validate:
+                with self.assertRaisesRegex(ValueError,'exactly match'):launch(config,root/'run',True,expected_updates=5)
+                validate.assert_not_called();self.assertFalse((root/'run').exists())
+            with self.assertRaisesRegex(ValueError,'one to five'):launch(config,root/'run',False,expected_updates=4)
+
+    def test_cli_process_success_cannot_claim_verified_semantic_smoke(self):
+        import contextlib,io
+        from unittest.mock import patch
+        from officegym.cli import main
+        base=dict(exit_code=0,wall_budget_exhausted=False,process_tree_cleanup=True,semantic_smoke_verification='pending')
+        for changes,exit_code in (({},2),({'exit_code':1},1),({'process_tree_cleanup':False},1),({'wall_budget_exhausted':True},1),({'semantic_smoke_verification':'verified'},0)):
+            with self.subTest(changes=changes),patch('sys.argv',['officegym','grpo-smoke','--config','locked.json','--out','run','--updates','5']),patch('officegym.training.launch.launch',return_value={**base,**changes}) as launch,contextlib.redirect_stdout(io.StringIO()):
+                if exit_code:
+                    with self.assertRaises(SystemExit) as error:main()
+                    self.assertEqual(error.exception.code,exit_code)
+                else:main()
+                launch.assert_called_once_with('locked.json','run',True,expected_updates=5)
