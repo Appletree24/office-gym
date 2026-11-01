@@ -112,7 +112,7 @@ def solve(task, call, *, material_observations=True, handoff_observations=True, 
     approver_id = handoff_approver or task.get('approver_id')
     def confirm(meeting):
         if task.get('proposal_bound_availability'):
-            sent=invoke('mail.send',dict(recipient_ids=people,kind='coordination',subject='Proposal availability',body='Please confirm availability for this proposal',meeting_id=meeting['id'],meeting_version=meeting['version'],request={'type':'availability','meeting_id':meeting['id'],'meeting_version':meeting['version']}),True)
+            sent=invoke('mail.send',dict(recipient_ids=people,kind='coordination',subject='Proposal availability',body='' if public_wakeup_heuristic else 'Please confirm availability for this proposal',meeting_id=meeting['id'],meeting_version=meeting['version'],request={'type':'availability','meeting_id':meeting['id'],'meeting_version':meeting['version']}),True)
             if public_wakeup_heuristic:
                 invoke('clock.wait',{'until':task['deadline_at']})
             else:
@@ -229,6 +229,8 @@ def solve(task, call, *, material_observations=True, handoff_observations=True, 
             raise RuntimeError('monitoring reference budget exhausted')
     if task.get('followup_required'):
         minutes=observed_minutes.get(meeting['id'])
+        if public_wakeup_heuristic and minutes is None and sim_time<meeting['end_at']:
+            invoke('clock.wait',{'until':task['deadline_at']})
         for _ in range(40):
             if minutes is not None:
                 break
