@@ -192,3 +192,14 @@ PYTHONPATH=src .venv-rl/bin/python -m officegym.training.native_inference_probe 
 ```
 
 当前 v2 通过默认 manager 分批、两个真实 worker 生成、结果合并与独立 token 审计；十次生成、奖励均为零，无 optimizer 更新。上限与前述原生探针相同。实际权重同步、KL、正向 GRPO 联训、文件系统隔离及恢复仍待验收。
+
+Native GRPO operational curve data can be reconstructed without GPU work:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m officegym.training.curves \
+  --events /absolute/run/training_events.jsonl \
+  --usage /absolute/run/rollout_token_usage.json \
+  --out /absolute/run/curve_data
+```
+
+This writes `summary.json`, `updates.csv`, `sampling_batches.csv` and `checkpoints.csv`. Sampling counters are cumulative within each refill window and are differenced before summing. The summary distinguishes reported sampling tokens, ledger usage bounds, actor loss tokens, context tokens, protocol-verified updates and unfinished attempts/windows. Omit `--usage` when no ledger summary exists; missing cost remains explicitly unrecorded. These are operational records, not evaluation success curves, formal training admission or evidence of learning improvement. GPU-hours/API/tool costs are not inferred from absent records.
