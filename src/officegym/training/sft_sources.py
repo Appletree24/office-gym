@@ -6,7 +6,7 @@ from officegym.env.world import canonical
 from .data import verify_mask
 from .teacher import extract_trajectory
 
-FILES=('result.json','trajectory.jsonl','policy_isolation.json')
+FILES=('result.json','trajectory.jsonl','policy_isolation.json','task.json','private_spec.json','event_rules.json','initial_world.sqlite','world.sqlite')
 
 
 def digest(path):return hashlib.sha256(Path(path).read_bytes()).hexdigest()

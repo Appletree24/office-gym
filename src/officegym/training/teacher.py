@@ -27,6 +27,8 @@ def extract_trajectory(run_dir):
         raise RejectedTrajectory('unsafe_policy_isolation') from exc
     if not result['grade']['full_success'] or result['termination']['state']!='DECLARED_DONE' or not result['operation_audit']['consistent']:
         raise RejectedTrajectory('not_verified_success')
+    from .teacher_world import verify_teacher_world
+    verify_teacher_world(root,result)
     trace_path = root/'trajectory.jsonl'
     records = [json.loads(line) for line in trace_path.read_text().splitlines() if line.strip()]
     if not records or records[0].get('kind')!='run_header' or 'initial_messages' not in records[0] or 'tool_schemas' not in records[0]:

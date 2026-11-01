@@ -47,6 +47,8 @@ def bind_authored_sources(data,manifest):
         messages=conversation['messages'];messages[0]['content']=str(index)+':AUTHORED PROTOCOL FIXTURE, NOT MODEL DATA'
         evidence=dict(version=ISOLATION_VERSION,verified=True,uid=65534,gid=65534,groups=[],no_new_privs=True,dumpable=0,cannot_regain_root=True,grader_unavailable=True,root_entries=[],inherited_descriptors=[0,1,2],parent_death_signal='SIGKILL',environment_empty=True,protected_paths_denied=['/authored-fixture/'+str(i) for i in range(5)])
         result=dict(source_kind='AUTHORED_SOFTWARE_FIXTURE_NOT_MODEL_OR_ISOLATION_PROOF',split='train',policy_kind='inference_service',instance_id=conversation['instance_id'],model_version='authored-fixture',grade=dict(full_success=True,eval_grader_version=EVAL_GRADER_VERSION,reward_version=REWARD_VERSION),termination=dict(state='DECLARED_DONE'),operation_audit=dict(consistent=True),policy_isolation=evidence)
+        from teacher_world_fixtures import bind_world_fixture
+        bind_world_fixture(path,result)
         records=[dict(kind='run_header',harness_version=HARNESS_VERSION,mode='full',model_version='authored-fixture',initial_messages=messages[:1],tool_schemas=[])]
         for turn in range(2):
             assistant,observation=messages[1+2*turn:3+2*turn];call=assistant['tool_call'];action=str(turn)

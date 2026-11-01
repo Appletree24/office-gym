@@ -15,8 +15,8 @@ class SFTSourceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             data=Path(directory)/'data';reviewed_fixture(data)
             manifest=json.loads((data/'manifest.json').read_text())
-            self.assertEqual(verify_sources(data,manifest)['source_files'],15)
-            for name in ('result.json','trajectory.jsonl','policy_isolation.json'):
+            self.assertEqual(verify_sources(data,manifest)['source_files'],40)
+            for name in ('result.json','trajectory.jsonl','policy_isolation.json','task.json','private_spec.json','event_rules.json','initial_world.sqlite','world.sqlite'):
                 path=Path(manifest['accepted'][0]['source_run'])/name;before=path.read_bytes();path.write_bytes(before+b' ')
                 with self.subTest(name=name),self.assertRaisesRegex(ValueError,'evidence changed'):verify_sources(data,manifest)
                 path.write_bytes(before)
@@ -24,13 +24,22 @@ class SFTSourceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'complete hash-bound'):verify_sources(data,manifest)
 
     def test_rehashing_changed_evidence_does_not_hide_conversation_or_grade_drift(self):
-        for fault in ('trace','grade','duplicate_path','sample_source','token_total'):
+        for fault in ('trace','grade','world','input','duplicate_path','sample_source','token_total'):
             with self.subTest(fault=fault),tempfile.TemporaryDirectory() as directory:
                 data=Path(directory)/'data';reviewed_fixture(data);manifest=json.loads((data/'manifest.json').read_text());entry=manifest['accepted'][0];source=Path(entry['source_run'])
                 if fault=='trace':
                     path=source/'trajectory.jsonl';path.write_text(path.read_text().replace('authored_software_fixture','changed_authored_fixture'));entry['source_files_sha256']=source_hashes(source)
                 elif fault=='grade':
                     path=source/'result.json';result=json.loads(path.read_text());result['grade']['full_success']=False;path.write_text(canonical(result)+'\n');entry['source_files_sha256']=source_hashes(source)
+                elif fault=='world':
+                    import sqlite3
+                    with sqlite3.connect(source/'world.sqlite') as db:db.execute("UPDATE meta SET value_json='false' WHERE key='finished'")
+                    entry['source_files_sha256']=source_hashes(source)
+                elif fault=='input':
+                    import hashlib
+                    path=source/'task.json';task=json.loads(path.read_text());task['public_task']['title']='Changed fixture';path.write_text(canonical(task)+'\n')
+                    result_path=source/'result.json';result=json.loads(result_path.read_text());result['versions']['instance_artifact_sha256']['task.json']=hashlib.sha256(path.read_bytes()).hexdigest();result_path.write_text(canonical(result)+'\n')
+                    entry['source_files_sha256']=source_hashes(source)
                 elif fault=='duplicate_path':manifest['accepted'][1]['source_run']=entry['source_run']
                 elif fault=='sample_source':
                     path=data/'samples.jsonl';rows=[json.loads(line) for line in path.read_text().splitlines()];rows[0]['source_run']='/other/fixture';path.write_text(''.join(canonical(row)+'\n' for row in rows))
@@ -46,4 +55,4 @@ class SFTSourceTests(unittest.TestCase):
             self.assertEqual(len(built['accepted']),5)
             self.assertEqual(verify_sources(root/'built',built)['training_tokens'],15)
             self.assertEqual(built['manual_alignment_review_status'],'pending')
-            self.assertTrue(all(set(row['source_files_sha256'])=={'result.json','trajectory.jsonl','policy_isolation.json'} for row in built['accepted']))
+            self.assertTrue(all(set(row['source_files_sha256'])=={'result.json','trajectory.jsonl','policy_isolation.json','task.json','private_spec.json','event_rules.json','initial_world.sqlite','world.sqlite'} for row in built['accepted']))

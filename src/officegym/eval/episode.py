@@ -3,6 +3,8 @@ import json
 import multiprocessing
 import time
 import tempfile
+import shutil
+import hashlib
 from pathlib import Path
 from officegym.env.world import canonical
 from officegym.env.rollout import clone_world
@@ -37,8 +39,16 @@ def run_episode(instance_dir,out,policy,*,mode='full',budget=None,context_manage
     from .provenance import provenance
     versions = provenance(instance_dir,policy)
     write_json(out/'provenance.json',versions)
+    # Keep trusted inputs for offline teacher-grade verification after collection.
+    for name in ('task.json','private_spec.json','event_rules.json','initial_world.sqlite'):
+        shutil.copyfile(instance_dir/name,out/name)
+        if hashlib.sha256((out/name).read_bytes()).hexdigest()!=versions['instance_artifact_sha256'].get(name):
+            raise ValueError('episode input changed while retaining trusted snapshot')
+    task=json.loads((out/'task.json').read_text())
+    public=task['public_task']
+    private=json.loads((out/'private_spec.json').read_text())
     world_path = out/'world.sqlite'
-    world = clone_world(instance_dir/'initial_world.sqlite',world_path)
+    world = clone_world(out/'initial_world.sqlite',world_path)
     try:
         meta = {row['key']:json.loads(row['value_json']) for row in world.db.execute('SELECT * FROM meta')}
         if meta.get('tool_calls',0)!=0 or meta.get('finished') or world.db.execute('SELECT 1 FROM operations LIMIT 1').fetchone():
@@ -126,7 +136,7 @@ def run_episode(instance_dir,out,policy,*,mode='full',budget=None,context_manage
                 process.join()
         if socket_directory is not None:
             socket_directory.cleanup()
-    grade,audit=grade_episode_snapshot(world_path,{**public,**private},instance_dir/'initial_world.sqlite',termination_state=termination['state'],infrastructure_error=error)
+    grade,audit=grade_episode_snapshot(world_path,{**public,**private},out/'initial_world.sqlite',termination_state=termination['state'],infrastructure_error=error)
     result = dict(instance_id=task['instance_id'],split=task['split'],template_id=task['template_id'],mode=mode,
                   model_version=getattr(policy,'model_version',None),tool_choice=getattr(policy,'tool_choice',None),policy_kind=getattr(policy,'policy_kind','software_fixture'),termination=termination,grade=grade,operation_audit=audit,
                   policy_isolation=isolation_evidence,infrastructure_error=error,runner_wall_seconds=time.monotonic()-started,

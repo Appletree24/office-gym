@@ -31,6 +31,8 @@ class TeacherExtractTests(unittest.TestCase):
             evidence=dict(version=ISOLATION_VERSION,verified=True,uid=65534,gid=65534,groups=[],no_new_privs=True,dumpable=0,cannot_regain_root=True,grader_unavailable=True,root_entries=[],inherited_descriptors=[0,1,2],parent_death_signal='SIGKILL',environment_empty=True,protected_paths_denied=['/fixture/'+str(i) for i in range(5)])
             result['policy_isolation']=evidence
             (root/'policy_isolation.json').write_text(json.dumps(evidence))
+            from teacher_world_fixtures import bind_world_fixture
+            bind_world_fixture(root,result)
             (root/'result.json').write_text(json.dumps(result))
             records=[dict(kind='run_header',harness_version=HARNESS_VERSION,mode='full',model_version='fixture',initial_messages=[{'role':'user','content':'fixture task'}],tool_schemas=[]),
                      dict(kind='model_response',tool='task.finish',arguments={'summary':'done'},content='The task is complete.',raw={'fixture':True}),
