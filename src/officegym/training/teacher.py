@@ -16,6 +16,8 @@ def extract_trajectory(run_dir):
         raise RejectedTrajectory('non_training_split')
     if result.get('policy_kind')!='inference_service':
         raise RejectedTrajectory('not_a_model_trajectory')
+    if result.get('fault') is not None:
+        raise RejectedTrajectory('fault_evaluation_source')
     try:
         require_current_scoring(result.get('grade',{}))
     except ValueError as exc:

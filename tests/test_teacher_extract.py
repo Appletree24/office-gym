@@ -18,6 +18,12 @@ class TeacherExtractTests(unittest.TestCase):
             with self.assertRaisesRegex(RejectedTrajectory,'not_a_model'):
                 extract_trajectory(root)
 
+    def test_fault_evaluation_cannot_enter_p0_teacher_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            (root/'result.json').write_text(json.dumps(dict(split='train',policy_kind='inference_service',fault={'fault_injected':False})))
+            with self.assertRaisesRegex(RejectedTrajectory,'fault_evaluation_source'):extract_trajectory(root)
+
     @patch('officegym.training.teacher_world.verify_teacher_trace')
     def test_fixture_response_action_and_training_messages_must_match(self,replay_gate):
         # Entire episode is an authored protocol fixture, not model evidence.

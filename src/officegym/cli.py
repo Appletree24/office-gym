@@ -118,7 +118,19 @@ def main():
     grpo_train = commands.add_parser('train-grpo',help='Launch admitted GRPO using the existing locked upstream runner')
     grpo_train.add_argument('--config',required=True)
     grpo_train.add_argument('--out',required=True)
+    fault_eval = commands.add_parser('fault-evaluate',help='One full-mode commit-fault episode; paired/context-rebuild evaluation remains pending')
+    fault_eval.add_argument('--instance',required=True)
+    fault_eval.add_argument('--config',required=True)
+    fault_eval.add_argument('--out',required=True)
+    fault_eval.add_argument('--protocol',choices=('after_world_commit',),required=True)
     args = parser.parse_args()
+    if args.command == 'fault-evaluate':
+        from officegym.eval.fault_episode import evaluate_fault_instance
+        result=evaluate_fault_instance(args.instance,args.config,args.out)
+        print(json.dumps(result,indent=2))
+        if result.get('infrastructure_error') is not None:raise SystemExit(1)
+        if not result['fault']['fault_injected'] or not result['fault']['recovery_started']:raise SystemExit(2)
+        return
     if args.command in ('grpo-smoke','train-grpo'):
         from officegym.training.launch import launch,launch_exit_code
         smoke=args.command=='grpo-smoke'

@@ -22,6 +22,8 @@ def result_row(run_dir,plan_row,dataset_manifest):
     result = json.loads((root/'result.json').read_text())
     if result.get('policy_kind')!='inference_service':
         raise ValueError('scripted/software runs cannot become measured result rows')
+    if result.get('fault') is not None:
+        raise ValueError('fault episodes require explicit fault-protocol statistics; ordinary result export is forbidden')
     from officegym.harness.isolation import require_isolation
     require_isolation(root,result,allow_startup_failure=True)
     if result['split'] not in ('dev','id_test','combo_test','unseen_test'):
