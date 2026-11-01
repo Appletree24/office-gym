@@ -29,6 +29,12 @@ def audit_calibration(manifest_path,plan_path,results_path,out,*,min_success_rat
     for field in ('model_version','budget_hash'):
         values={row.get(field) for row in rows}
         if len(values)!=1 or not all(isinstance(value,str) and value for value in values):raise ValueError('one shared calibration '+field+' required')
+    artifacts=[]
+    for row in rows:
+        path=row.get('artifact_path')
+        if not isinstance(path,str) or not path.strip():raise ValueError('original calibration artifact path required')
+        artifacts.append(Path(path).resolve())
+    if len(set(artifacts))!=len(rows):raise ValueError('calibration repeats cannot reuse runtime artifact directories')
     scores={group:[] for group in groups}
     for row in rows:
         if row.get('synthetic') is not False or row.get('example_only') is not False or row.get('run_plan_sha256')!=digest:

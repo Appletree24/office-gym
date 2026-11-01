@@ -15,7 +15,7 @@ class CalibrationTests(unittest.TestCase):
             manifest=root/'manifest.json';manifest.write_text(json.dumps({'instances':[entry]}))
             plans=[r for r in build_plan([entry],splits=('dev',)) if r['group'] in ('api_simple','api_full')]
             plan=root/'plan.jsonl';digest=freeze_plan(plans,plan)
-            rows=[dict(r,synthetic=False,example_only=False,artifact_path='authored-fixture',model_version='authored-fixture',budget_hash='fixture-budget',harness_version=HARNESS_VERSION,success=r['repeat_id']==0,run_plan_sha256=digest) for r in plans]
+            rows=[dict(r,synthetic=False,example_only=False,artifact_path=str(root/(r['group']+'_'+str(r['repeat_id']))),model_version='authored-fixture',budget_hash='fixture-budget',harness_version=HARNESS_VERSION,success=r['repeat_id']==0,run_plan_sha256=digest) for r in plans]
             results=root/'rows.jsonl'
             def write(values):results.write_text(''.join(json.dumps(r)+'\n' for r in values))
             def fixture_export(path,planned,source):return next({k:v for k,v in r.items() if k!='run_plan_sha256'} for r in rows if all(r[k]==planned[k] for k in ('group','instance_id','repeat_id')))
@@ -31,6 +31,14 @@ class CalibrationTests(unittest.TestCase):
                     original=rows[0][field];rows[0][field]='different';write(rows)
                     with self.assertRaisesRegex(ValueError,'shared calibration'):audit_calibration(manifest,plan,results,root/'bad.json',min_success_rate=.1,max_success_rate=.9)
                     rows[0][field]=original
+                original=rows[1]['artifact_path'];rows[1]['artifact_path']=rows[0]['artifact_path'];write(rows)
+                with self.assertRaisesRegex(ValueError,'reuse runtime'):audit_calibration(manifest,plan,results,root/'bad.json',min_success_rate=.1,max_success_rate=.9)
+                target=Path(rows[0]['artifact_path']);target.mkdir()
+                alias=root/'alias';alias.symlink_to(target,target_is_directory=True)
+                for reused in (str(alias),str(target/'..'/target.name)):
+                    rows[1]['artifact_path']=reused;write(rows)
+                    with self.assertRaisesRegex(ValueError,'reuse runtime'):audit_calibration(manifest,plan,results,root/'bad.json',min_success_rate=.1,max_success_rate=.9)
+                rows[1]['artifact_path']=original
                 rows[0]['synthetic']=True;write(rows)
                 with self.assertRaisesRegex(ValueError,'measured'):audit_calibration(manifest,plan,results,root/'bad.json',min_success_rate=.1,max_success_rate=.9)
 
