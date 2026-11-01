@@ -209,10 +209,11 @@ def evaluate(world_path, spec, initial_path=None):
             failures.append('followup_monitoring_incomplete')
         if required_todos:
             for requirement in required_todos:
-                matching = [row for row in db.execute('SELECT * FROM todos') if row['source_meeting_id'] in candidates and all(row[key] == value for key,value in requirement.items())]
+                content_matches = [row for row in db.execute('SELECT * FROM todos') if row['source_meeting_id'] in candidates and all(row[key] == value for key,value in requirement.items() if key!='status')]
+                matching = [row for row in content_matches if row['status']==requirement['status']] if 'status' in requirement else [row for row in content_matches if row['status']!='cancelled']
                 if not matching:
                     failures.append('missing_or_incorrect_todo')
-                elif len(matching) > 1:
+                if len(content_matches) > 1:
                     severe.append('duplicate_todo')
                 if spec.get('followup_required'):
                     for todo in matching:

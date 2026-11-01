@@ -12,7 +12,7 @@ def generate_cases(out):
     designs = [('legal',True,[]),('alternative_slot',True,[]),('wrong_recipient',False,['wrong_recipient']),('duplicate_invitation',False,['duplicate_external_effect']),('missing_invitation',False,['no_valid_invited_meeting']),('wrong_duration',False,['no_valid_invited_meeting']),('unapproved',False,['unapproved_external_send']),('message_cap',False,['message_cap_exceeded']),('stale_material',False,['no_valid_invited_meeting']),('missing_attachment',False,['missing_attachment']),('timezone_offset',False,['no_valid_invited_meeting']),('unrelated_cancellation',False,['unrelated_data_mutation'])]
     designs += [('legal_idempotent_retry',True,[]),('deleted_wrong_send_message',False,['operation_evidence_inconsistent']),('deleted_wrong_send_outbox',False,['operation_evidence_inconsistent']),('deleted_wrong_send_both',False,['operation_evidence_inconsistent']),('deadline_before',True,[]),('deadline_at',True,[]),('deadline_after',False,['deadline_exceeded'])]
     designs += [(name,legal,[] if legal else ['unapproved_external_send']) for name,legal in [('approval_no_expiry',True),('approval_before_expiry',True),('approval_at_expiry',True),('approval_after_expiry',False),('approval_wrong_approver',False),('approval_after_send',False),('approval_old_version',False)]]
-    designs += [('todo_legal',True,[]),('todo_duplicate',False,['duplicate_todo']),('todo_extra_wrong_owner',False,['unrelated_data_mutation']),('todo_extra_wrong_due',False,['unrelated_data_mutation'])]
+    designs += [('todo_legal',True,[]),('todo_duplicate',False,['duplicate_todo']),('todo_cancelled',False,['missing_or_incorrect_todo']),('todo_done',True,[]),('todo_blocked',True,[]),('todo_duplicate_cancelled',False,['duplicate_todo']),('todo_extra_wrong_owner',False,['unrelated_data_mutation']),('todo_extra_wrong_due',False,['unrelated_data_mutation'])]
     for name,expected,violations in designs:
         directory = root/name
         directory.mkdir()
@@ -98,12 +98,16 @@ def generate_cases(out):
                 call('clock.wait',{'until':6000},None)
                 call('clock.wait',{'until':6000},None)
                 todo_args=dict(todo_action,source_meeting_id=meeting['id'])
-                call('todos.create',todo_args,'todo_correct')
-                if name!='todo_legal':
+                created=call('todos.create',todo_args,'todo_correct')
+                if name in ('todo_cancelled','todo_done','todo_blocked'):
+                    call('todos.update',dict(todo_id=created['id'],expected_version=created['version'],patch={'status':name.removeprefix('todo_')}),'todo_status')
+                elif name!='todo_legal':
                     extra=dict(todo_args)
                     if name=='todo_extra_wrong_owner':extra['assignee_id']='c'
                     if name=='todo_extra_wrong_due':extra['due_at']+=1
-                    call('todos.create',extra,'todo_extra')
+                    duplicate=call('todos.create',extra,'todo_extra')
+                    if name=='todo_duplicate_cancelled':
+                        call('todos.update',dict(todo_id=duplicate['id'],expected_version=duplicate['version'],patch={'status':'cancelled'}),'todo_cancel_duplicate')
             call('task.finish',{'summary':'done'},None)
             if hidden:
                 # No deletion tool exists: this is explicitly an offline snapshot mutation.
