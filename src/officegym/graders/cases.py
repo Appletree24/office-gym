@@ -206,5 +206,7 @@ def generate_cases(out):
             cases[-1]['initial_world'] = name+'/initial.sqlite'
     from .conflict_cases import generate_conflict_cases
     cases.extend(generate_conflict_cases(root))
+    from .material_cases import generate_material_cases
+    cases.extend(generate_material_cases(root))
     (root/'cases.json').write_text(canonical(cases))
     return len(cases)
