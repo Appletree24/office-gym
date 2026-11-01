@@ -1,6 +1,7 @@
 """Freeze planned run keys before evaluation; never silently discard missing runs."""
 import hashlib
 import json
+import os
 from pathlib import Path
 from officegym.env.world import canonical
 
@@ -48,10 +49,24 @@ def freeze_plan(rows,path):
     payload = ''.join(canonical(row)+'\n' for row in rows).encode()
     fingerprint = hashlib.sha256(payload).hexdigest()
     path.parent.mkdir(parents=True,exist_ok=True)
-    with path.open('xb') as stream:
-        stream.write(payload)
-    with Path(str(path)+'.sha256').open('x') as stream:
-        stream.write(fingerprint+'\n')
+    owned=[]
+    try:
+        for destination,content in ((path,payload),(Path(str(path)+'.sha256'),(fingerprint+'\n').encode())):
+            with destination.open('xb') as stream:
+                identity=os.fstat(stream.fileno())
+                owned.append((destination,identity.st_dev,identity.st_ino))
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
+    except BaseException:
+        # Remove only files created by this invocation; never unlink a prior
+        # checksum or a path replaced by a different writer.
+        for destination,device,inode in reversed(owned):
+            try:
+                current=destination.lstat()
+                if (current.st_dev,current.st_ino)==(device,inode):destination.unlink()
+            except FileNotFoundError:pass
+        raise
     return fingerprint
 
 

@@ -23,3 +23,34 @@ class PlanTests(unittest.TestCase):
     def test_empty_split_rejected(self):
         with self.assertRaises(ValueError):
             build_plan([],splits=('id_test',))
+
+
+class PlanWriteFailureTests(unittest.TestCase):
+    def test_existing_checksum_is_preserved_without_leaving_new_plan(self):
+        import tempfile
+        from pathlib import Path
+        from officegym.eval.plan import freeze_plan
+        with tempfile.TemporaryDirectory() as directory:
+            plan=Path(directory)/'plan.jsonl';checksum=Path(str(plan)+'.sha256');checksum.write_text('prior evidence\n')
+            with self.assertRaises(FileExistsError):freeze_plan([{'fixture':True}],plan)
+            self.assertFalse(plan.exists());self.assertEqual(checksum.read_text(),'prior evidence\n')
+
+    def test_existing_plan_does_not_create_checksum(self):
+        import tempfile
+        from pathlib import Path
+        from officegym.eval.plan import freeze_plan
+        with tempfile.TemporaryDirectory() as directory:
+            plan=Path(directory)/'plan.jsonl';plan.write_text('prior evidence\n')
+            with self.assertRaises(FileExistsError):freeze_plan([{'fixture':True}],plan)
+            self.assertEqual(plan.read_text(),'prior evidence\n');self.assertFalse(Path(str(plan)+'.sha256').exists())
+
+    def test_second_sync_failure_removes_both_owned_files(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        from officegym.eval.plan import freeze_plan
+        with tempfile.TemporaryDirectory() as directory:
+            plan=Path(directory)/'plan.jsonl'
+            with patch('officegym.eval.plan.os.fsync',side_effect=[None,OSError('authored sync failure')]):
+                with self.assertRaisesRegex(OSError,'sync failure'):freeze_plan([{'fixture':True}],plan)
+            self.assertFalse(plan.exists());self.assertFalse(Path(str(plan)+'.sha256').exists())
