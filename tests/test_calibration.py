@@ -23,7 +23,29 @@ class CalibrationTests(unittest.TestCase):
             with patch('officegym.eval.calibration.validate_dataset'),patch('officegym.eval.calibration.result_row',side_effect=fixture_export):
                 write(rows);report=audit_calibration(manifest,plan,results,root/'audit.json',min_success_rate=.1,max_success_rate=.9)
                 self.assertTrue(report['calibration_usable']);self.assertEqual(report['runs'],6);self.assertFalse(report['dataset_frozen'])
+                unusable=audit_calibration(manifest,plan,results,root/'unusable.json',min_success_rate=.5,max_success_rate=.9)
+                self.assertFalse(unusable['calibration_usable']);self.assertTrue(unusable['evidence_verified'])
                 write(rows[:-1])
                 with self.assertRaisesRegex(ValueError,'incomplete'):audit_calibration(manifest,plan,results,root/'bad.json',min_success_rate=.1,max_success_rate=.9)
+                for field in ('model_version','budget_hash'):
+                    original=rows[0][field];rows[0][field]='different';write(rows)
+                    with self.assertRaisesRegex(ValueError,'shared calibration'):audit_calibration(manifest,plan,results,root/'bad.json',min_success_rate=.1,max_success_rate=.9)
+                    rows[0][field]=original
                 rows[0]['synthetic']=True;write(rows)
                 with self.assertRaisesRegex(ValueError,'measured'):audit_calibration(manifest,plan,results,root/'bad.json',min_success_rate=.1,max_success_rate=.9)
+
+
+    def test_cli_passes_explicit_bounds_and_returns_unusable_exit(self):
+        from officegym.cli import main
+        import contextlib
+        import io
+        args=['officegym','audit-dev-calibration','--manifest','manifest','--plan','plan','--results','results','--out','out','--min-success-rate','0.1','--max-success-rate','0.9']
+        with patch('sys.argv',args),patch('officegym.eval.calibration.audit_calibration',return_value={'calibration_usable':False}) as audit,contextlib.redirect_stdout(io.StringIO()),self.assertRaises(SystemExit) as error:
+            main()
+        self.assertEqual(error.exception.code,2)
+        audit.assert_called_once_with('manifest','plan','results','out',min_success_rate=.1,max_success_rate=.9)
+
+
+    def test_invalid_bounds_fail_before_any_input_files_are_read(self):
+        for lower,upper in ((True,.9),(float('nan'),.9),(.9,.1),(-.1,.9),(.1,1.1)):
+            with self.assertRaises(ValueError):audit_calibration('absent','absent','absent','absent',min_success_rate=lower,max_success_rate=upper)

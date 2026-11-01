@@ -82,7 +82,20 @@ def main():
     run_plan.add_argument('--splits',default='id_test,combo_test,unseen_test')
     operator = commands.add_parser('check-operator-inputs',help='Check teacher and total resource choices without reading credentials or launching jobs')
     operator.add_argument('--config',required=True)
+    calibration = commands.add_parser('audit-dev-calibration',help='Verify complete paired dev evidence; does not freeze a dataset')
+    calibration.add_argument('--manifest',required=True)
+    calibration.add_argument('--plan',required=True)
+    calibration.add_argument('--results',required=True)
+    calibration.add_argument('--out',required=True)
+    calibration.add_argument('--min-success-rate',type=float,required=True)
+    calibration.add_argument('--max-success-rate',type=float,required=True)
     args = parser.parse_args()
+    if args.command == 'audit-dev-calibration':
+        from officegym.eval.calibration import audit_calibration
+        report=audit_calibration(args.manifest,args.plan,args.results,args.out,min_success_rate=args.min_success_rate,max_success_rate=args.max_success_rate)
+        print(json.dumps(report,indent=2))
+        if not report['calibration_usable']:raise SystemExit(2)
+        return
     if args.command == 'check-operator-inputs':
         from officegym.training.operator_inputs import check_operator_inputs
         report=check_operator_inputs(args.config)
