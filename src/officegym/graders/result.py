@@ -19,7 +19,8 @@ def evaluate(world_path, spec, initial_path=None):
         invitations = db.execute("SELECT o.*,m.sent_at FROM outbox o JOIN messages m ON m.id=o.message_id WHERE o.kind IN ('invitation','reschedule') ORDER BY o.id").fetchall()
         required = set(spec['required_participant_ids'])
         allowed = set(spec.get('allowed_recipient_ids', required))
-        attendee_events = [json.loads(event['details_json']) for event in db.execute("SELECT details_json FROM event_log WHERE kind='AttendeeChanged' ORDER BY seq")]
+        attendee_records = [dict(event) for event in db.execute("SELECT seq,details_json FROM event_log WHERE kind='AttendeeChanged' ORDER BY seq")]
+        attendee_events = [json.loads(event['details_json']) for event in attendee_records]
         final_participants = {event['meeting_id']:set(event['participant_ids']) for event in attendee_events}
 
         for row in db.execute('SELECT * FROM outbox ORDER BY id'):
@@ -40,6 +41,13 @@ def evaluate(world_path, spec, initial_path=None):
             if send_event is None:
                 severe.append('invitation_evidence_missing')
             else:
+                expected_members=set(required)
+                for change in attendee_records:
+                    if change['seq']>=send_event['seq']:break
+                    facts=json.loads(change['details_json'])
+                    if facts['meeting_id']==invitation['meeting_id']:expected_members=set(facts['participant_ids'])
+                if set(json.loads(snapshot['participant_ids_json']))!=expected_members:
+                    severe.append('unrequested_invitation_participants')
                 changes = db.execute("SELECT after_json FROM event_log WHERE object_type='meeting' AND object_id=? AND seq<? AND after_json IS NOT NULL ORDER BY seq DESC LIMIT 1",(invitation['meeting_id'],send_event['seq'])).fetchone()
                 if changes:
                     state_at_send = json.loads(changes[0])

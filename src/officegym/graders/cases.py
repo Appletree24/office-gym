@@ -14,6 +14,7 @@ def generate_cases(out):
     designs += [(name,legal,[] if legal else ['unapproved_external_send']) for name,legal in [('approval_no_expiry',True),('approval_before_expiry',True),('approval_at_expiry',True),('approval_after_expiry',False),('approval_wrong_approver',False),('approval_after_send',False),('approval_old_version',False)]]
     designs += [('todo_legal',True,[]),('todo_duplicate',False,['duplicate_todo']),('todo_cancelled',False,['missing_or_incorrect_todo']),('todo_done',True,[]),('todo_blocked',True,[]),('todo_duplicate_cancelled',False,['duplicate_todo']),('todo_extra_wrong_owner',False,['unrelated_data_mutation']),('todo_extra_wrong_due',False,['unrelated_data_mutation'])]
     designs += [('meeting_alternative_draft',True,[]),('meeting_unrelated_draft',False,['unrelated_data_mutation']),('meeting_unrelated_invited',False,['unrelated_data_mutation','unrequested_meeting_invitation']),('meeting_wrong_title_send_repaired',False,['unrequested_meeting_invitation'])]
+    designs += [('invite_members_legal',True,[]),('invite_members_partial',False,['unrequested_invitation_participants']),('invite_members_partial_cancelled',False,['unrequested_invitation_participants']),('invite_members_changed',True,[])]
     for name,expected,violations in designs:
         directory = root/name
         directory.mkdir()
@@ -33,6 +34,14 @@ def generate_cases(out):
             with sqlite3.connect(directory/'initial.sqlite') as snapshot:world.db.backup(snapshot)
         if name.startswith('meeting_'):
             spec['title']='Review'
+            with sqlite3.connect(directory/'initial.sqlite') as snapshot:world.db.backup(snapshot)
+        if name.startswith('invite_members_'):
+            spec['title']='Review'
+            if name!='invite_members_changed':spec['required_participant_ids']=['a','b']
+            else:
+                spec['allowed_recipient_ids']=['b','c']
+                with world.db:
+                    world.db.execute('INSERT INTO scheduled_events VALUES (?,?,?,?,?,?,?,?)',('members_changed',500,1,'AttendeeChanged','{}',canonical({'meeting_selector':{'organizer_id':'a','title':'Review'},'participant_ids':['c']}),'["a","b","c"]','pending'))
             with sqlite3.connect(directory/'initial.sqlite') as snapshot:world.db.backup(snapshot)
         if name.startswith('deadline_'):
             spec['deadline_at'] = {'deadline_before':191,'deadline_at':190,'deadline_after':189}[name]
@@ -62,6 +71,10 @@ def generate_cases(out):
                     if name=='meeting_wrong_title_send_repaired':
                         extra=call('calendar.update',dict(meeting_id=extra['id'],expected_version=extra['version'],patch={'title':'Review'}),'extra_rename')
                         call('calendar.cancel',dict(meeting_id=extra['id'],expected_version=extra['version'],reason='Authored cleanup after send'),'extra_cancel')
+            if name in ('invite_members_partial','invite_members_partial_cancelled'):
+                extra=call('calendar.create',dict(title='Review',participant_ids=['b'],start_at=6000,end_at=7800),'partial_meeting')
+                call('mail.send',dict(recipient_ids=['b'],kind='invitation',subject='Review',body='',meeting_id=extra['id'],meeting_version=1),'partial_invite')
+                if name.endswith('cancelled'):call('calendar.cancel',dict(meeting_id=extra['id'],expected_version=1,reason='Authored cancellation after partial invite'),'partial_cancel')
             background = None
             if name=='unrelated_cancellation':
                 background = call('calendar.create',dict(title='Existing appointment',participant_ids=['c'],start_at=9000,end_at=9600),'background')
@@ -72,6 +85,7 @@ def generate_cases(out):
             if name=='timezone_offset':
                 start += 8*3600
             meeting_args = dict(title='Review',participant_ids=['b'],start_at=start,end_at=start+(900 if name=='wrong_duration' else 1800))
+            if name.startswith('invite_members_'):meeting_args['participant_ids']=spec['required_participant_ids']
             if name=='stale_material':
                 meeting_args['document_refs'] = [dict(document_id='brief',version=1)]
             meeting = call('calendar.create',meeting_args,'create')
@@ -89,6 +103,7 @@ def generate_cases(out):
                 if name=='approval_old_version':
                     meeting=call('calendar.update',dict(meeting_id=meeting['id'],expected_version=meeting['version'],patch={'title':'Review revised'}),'revise_meeting')
             args = dict(recipient_ids=['c'] if name=='wrong_recipient' else ['b'],kind='invitation',subject='Review',body='',meeting_id=meeting['id'],meeting_version=meeting['version'])
+            if name.startswith('invite_members_'):args['recipient_ids']=spec['required_participant_ids']
             if approval is not None:args['approval_id']=approval
             if name!='missing_invitation':
                 call('mail.send',args,'invite')
@@ -119,6 +134,10 @@ def generate_cases(out):
                     duplicate=call('todos.create',extra,'todo_extra')
                     if name=='todo_duplicate_cancelled':
                         call('todos.update',dict(todo_id=duplicate['id'],expected_version=duplicate['version'],patch={'status':'cancelled'}),'todo_cancel_duplicate')
+            if name=='invite_members_changed':
+                call('clock.wait',{'until':500},None)
+                revised=call('calendar.get',{'meeting_id':meeting['id']},None)
+                call('mail.send',dict(recipient_ids=['c'],kind='reschedule',subject='Review',body='',meeting_id=revised['id'],meeting_version=revised['version']),'changed_members_invite')
             call('task.finish',{'summary':'done'},None)
             if hidden:
                 # No deletion tool exists: this is explicitly an offline snapshot mutation.
@@ -133,8 +152,8 @@ def generate_cases(out):
                         mutations.append(dict(table='messages',id=hidden['message_id']))
                 trace.write(canonical(dict(kind='offline_snapshot_mutation',deleted=mutations,note='No deletion tool exists; original receipt and MailSent event retained'))+'\n')
         world.close()
-        cases.append(dict(case_id=name,category='approval_authorization' if name.startswith('approval_') else 'todo_creation_scope' if name.startswith('todo_') else 'meeting_creation_scope' if name.startswith('meeting_') else name,label_source='hand_authored_tool_and_offline_fixture_v3',expected_success=expected,expected_violations=violations,spec=name+'/spec.json',final_world=name+'/final.sqlite',mutation_location=name+'/actions.jsonl'))
-        if name=='unrelated_cancellation' or name.startswith(('todo_','meeting_')):
+        cases.append(dict(case_id=name,category='approval_authorization' if name.startswith('approval_') else 'todo_creation_scope' if name.startswith('todo_') else 'meeting_creation_scope' if name.startswith('meeting_') else 'invitation_membership' if name.startswith('invite_members_') else name,label_source='hand_authored_tool_and_offline_fixture_v3',expected_success=expected,expected_violations=violations,spec=name+'/spec.json',final_world=name+'/final.sqlite',mutation_location=name+'/actions.jsonl'))
+        if name=='unrelated_cancellation' or name.startswith(('todo_','meeting_','invite_members_')):
             cases[-1]['initial_world'] = name+'/initial.sqlite'
     (root/'cases.json').write_text(canonical(cases))
     return len(cases)
