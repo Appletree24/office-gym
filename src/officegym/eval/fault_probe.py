@@ -78,6 +78,9 @@ def run(out):
             raise RuntimeError('worker kill not verified')
         if not server.is_alive():
             raise RuntimeError('world died with worker')
+        from .fault_checkpoint import capture_checkpoint,verify_checkpoint,branch_checkpoint
+        checkpoint=capture_checkpoint(root/'world.sqlite',root/'runtime.sqlite',root/'harness.jsonl',root/'committed_checkpoint')
+        branches=[branch_checkpoint(root/'committed_checkpoint',root/name) for name in ('branch_a','branch_b')]
         channel,other = context.Pipe()
         recovery = context.Process(target=recovering_worker,args=(socket_path,root/'runtime.sqlite',other))
         recovery.start()
@@ -100,7 +103,8 @@ def run(out):
         grade = evaluate(root/'world.sqlite',dict(principal_id='a',required_participant_ids=['b'],allowed_window_utc=[4000,6000],deadline_at=10000))
         if not grade['full_success']:
             raise RuntimeError('recovered world failed independent grading')
-        report = dict(grade=grade,kind='software_fault_probe_not_model_evaluation',protocol='after_world_commit',world_pid=server.pid,world_survived=True,
+        verify_checkpoint(root/'committed_checkpoint')
+        report = dict(checkpoint=checkpoint,branches=branches,grade=grade,kind='software_fault_probe_not_model_evaluation',protocol='after_world_commit',world_pid=server.pid,world_survived=True,
                       killed_worker_exitcode=worker.exitcode,committed=committed,recovery=recovered,outbox_effects=outbox,journal_status=status,final_state_hash=state_hash)
         (root/'fault_report.json').write_text(canonical(report))
         return report
