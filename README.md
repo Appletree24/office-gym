@@ -240,3 +240,14 @@ PYTHONPATH=src .venv/bin/python -m officegym.training.pilot --manifest artifacts
 选样器先按模板轮询，再在模板内按深度／扰动层轮询，用显式 seed 与任务 ID 的 SHA256 确定层内顺序。它只读取训练任务身份及层信息，不以参考成绩或长度筛选，不保证有限名额覆盖所有层。`selection.json` 保存任务清单、选择规则、seed、模板计数和源 manifest 哈希；当前 40 任务计划及独立核对位于 `artifacts/teacher_pilot_selection_v1`，T01–T08 各 5 个。此计划基于尚未冻结的开发数据，不表示数据已获正式准入。
 
 `collect-teacher` CLI 默认 `--max-tasks 40 --selection-seed officegym-teacher-pilot-v1`，按同一规则选样，在首次调用模型前保存完整选择清单及其哈希。扩大采样需显式提高 `--max-tasks`，仍受必填的 episode／生成 token 预算和每任务最多三次尝试限制；较小预算可能只执行计划的一部分，汇总分别记录 selected_tasks 和 attempted_tasks。使用相同 manifest、seed 和任务上限可复现离线计划。底层 `collect()` 未传 max_tasks 时保留全训练池行为，供现有显式预算的 RS-SFT 调用使用。真实采样仍须先完成教师配置与实际费用预算；离线计划不提供通过率或费用估计。
+
+
+SFT 五样本人工 mask 审查包：
+
+```bash
+PYTHONPATH=src .venv-tokenizer/bin/python -m officegym.training.mask_review --data /absolute/BUILT_SFT_DATA --tokenizer /absolute/LOCKED_TOKENIZER --revision FULL_REVISION --out /absolute/NEW_REVIEW_DIRECTORY
+```
+
+命令核对数据／tokenizer 哈希，选择五条各含至少两次工具调用及观察的会话，用原生模板重算并逐项比对保存的 ID、角色、mask 和 label。生成可独立打开的 `review.html`、逐 token 的 `tokens.jsonl`、绑定源文件与页面哈希的 `packet.json` 和空白 `human_checklist.json`。页面绿色行参与 loss；词表片段展示原始 tokenizer 符号，不能当作逐 token 独立解码的自然文本。原始会话和工具 schema 可展开核对。检查用户／系统／工具观察为 label -100、assistant 监督范围及工具调用边界；不足五条多轮样本、源会话改变或重算不一致会拒绝输出。
+
+生成器不填写人工判断、不改数据 manifest，也不授予训练准入。当前 `artifacts/mask_review_authored_reference_v2/review/review.html` 是使用真实锁定 tokenizer 的参考夹具演示，包含 24,562 个 token，非 teacher 数据，人工审查状态仍为 pending。原有 SFT 状态字段尚需进一步绑定实际人工签署记录；不能仅将字段改为 passed 就宣称完成手册要求。
