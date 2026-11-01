@@ -47,3 +47,16 @@ class EpisodeTests(unittest.TestCase):
             self.assertEqual(result['termination']['tool_calls'],2)
             self.assertIsNone(result['infrastructure_error'])
             self.assertTrue((root/'run'/'budget.json').is_file())
+
+    def test_long_utf8_output_path_uses_short_private_socket_and_keeps_artifacts(self):
+        class Policy:
+            model_version='scripted-long-path-fixture'
+            def generate(self,*args):return AssistantTurn('task.finish',{'summary':'done'},5,3)
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);manifest=generate(root/'tasks',templates=['T01'],count_per_template=1)
+            out=root/('长路径'*20)/'retained_episode'
+            self.assertGreater(len(str(out/'world.sock').encode()),108)
+            result=run_episode(root/'tasks'/manifest['instances'][0]['path'],out,Policy(),mode='full')
+            self.assertEqual(result['termination']['state'],'DECLARED_DONE');self.assertIsNone(result['infrastructure_error'])
+            self.assertTrue((out/'world.sqlite').is_file());self.assertTrue((out/'runtime.sqlite').is_file());self.assertTrue((out/'result.json').is_file())
+            self.assertFalse((out/'world.sock').exists())

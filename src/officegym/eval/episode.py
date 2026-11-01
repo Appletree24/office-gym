@@ -2,6 +2,7 @@
 import json
 import multiprocessing
 import time
+import tempfile
 from pathlib import Path
 from officegym.env.world import canonical
 from officegym.env.rollout import clone_world
@@ -49,6 +50,12 @@ def run_episode(instance_dir,out,policy,*,mode='full',budget=None,context_manage
     from dataclasses import asdict
     write_json(out/'budget.json',asdict(budget))
     socket_path = out/'world.sock'
+    socket_directory = None
+    # Linux pathname sockets have a small byte limit, independent of the
+    # filesystem's valid path length. Keep evidence at the requested output.
+    if len(str(socket_path).encode())>=104:
+        socket_directory=tempfile.TemporaryDirectory(prefix='officegym-sock-',dir='/tmp')
+        socket_path=Path(socket_directory.name)/'world.sock'
     process = multiprocessing.get_context('spawn').Process(target=serve,args=(world_path,socket_path,budget.tool_calls))
     journal = None
     isolated_policy = None
@@ -117,6 +124,8 @@ def run_episode(instance_dir,out,policy,*,mode='full',budget=None,context_manage
             if process.is_alive():
                 process.kill()
                 process.join()
+        if socket_directory is not None:
+            socket_directory.cleanup()
     grade,audit=grade_episode_snapshot(world_path,{**public,**private},instance_dir/'initial_world.sqlite',termination_state=termination['state'],infrastructure_error=error)
     result = dict(instance_id=task['instance_id'],split=task['split'],template_id=task['template_id'],mode=mode,
                   model_version=getattr(policy,'model_version',None),tool_choice=getattr(policy,'tool_choice',None),policy_kind=getattr(policy,'policy_kind','software_fixture'),termination=termination,grade=grade,operation_audit=audit,

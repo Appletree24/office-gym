@@ -127,10 +127,13 @@ async def run(instance,model,out):
     rows.append(await case('missing_backend_version',[call],actor_step=1,version_reject=True))
     rows.append(await case('user_turn_limit',[call],user_turns=1))
     assert rows[-1]['termination_reason']=='agent_turn_limit' and rows[-1]['generation_requests']==1
+    for name,text in [('unparseable_no_call','This is not a tool call<|im_end|>'),('malformed_call','<tool_call>\n{broken JSON\n</tool_call><|im_end|>')]:
+        rows.append(await case(name,[text]))
+        assert rows[-1]['generation_requests']==1 and rows[-1]['termination_reason']=='policy_terminated'
     assert not REGISTRY.entries
     assert hashlib.sha256((instance/'initial_world.sqlite').read_bytes()).hexdigest()==before
     local_hashes={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in (Path(__file__),Path(__file__).with_name('verl_loop.py'),Path(__file__).with_name('worker_plugins.py'),Path(__file__).with_name('actor_version.py'))}
-    report=dict(passed=True,kind='authored-token-native-loop-protocol-not-model-rollout',cases=rows,source_hashes=hashes,local_source_hashes=local_hashes,instance=str(instance),initial_snapshot_sha256=before,isolated_paths=sorted(barrier['paths']),model_generations=0,optimizer_updates=0,teacher_samples=0,wall_seconds=time.monotonic()-started)
+    report=dict(passed=True,parse_retry_parity_verified=False,parse_retry_scope='This probe records native one-response no-call termination; ordinary Harness parity requires separate verification and is not established by passed plumbing checks.',kind='authored-token-native-loop-protocol-not-model-rollout',cases=rows,source_hashes=hashes,local_source_hashes=local_hashes,instance=str(instance),initial_snapshot_sha256=before,isolated_paths=sorted(barrier['paths']),model_generations=0,optimizer_updates=0,teacher_samples=0,wall_seconds=time.monotonic()-started)
     write_json(root/'report.json',report)
     return report
 
