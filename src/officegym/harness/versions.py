@@ -1,1 +1,1 @@
-HARNESS_VERSION = 'harness-v9-native-auto-tool-choice'
+HARNESS_VERSION = 'harness-v10-bounded-parse-retry-history'

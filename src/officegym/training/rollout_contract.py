@@ -2,6 +2,12 @@
 from pathlib import Path
 
 
+def parse_retry_budget(contract):
+    value=contract.get('parse_retries',2)
+    if type(value) is not int or value<0:raise ValueError('finite nonnegative parse retry budget required')
+    return value
+
+
 def validate_rollout_contract(contract, max_rollout_tokens, actor_version):
     required = {'token_ledger_path','global_rollout_token_limit','max_generation_tokens',
                 'max_context_tokens','max_tool_calls','actor_version','artifact_root'}
@@ -19,7 +25,7 @@ def validate_rollout_contract(contract, max_rollout_tokens, actor_version):
     for name in ('token_ledger_path','artifact_root'):
         if not isinstance(contract[name],str) or not Path(contract[name]).is_absolute():
             raise ValueError('shared absolute rollout path required: '+name)
-    return dict(contract)
+    return dict(contract,parse_retries=parse_retry_budget(contract))
 
 
 def bind_rollout_rows(rows,contract):
@@ -28,6 +34,7 @@ def bind_rollout_rows(rows,contract):
     Training updates must replace actor_version with the actual synchronized actor
     version before dispatch; the initial contract binds the starting checkpoint.
     """
+    contract=dict(contract,parse_retries=parse_retry_budget(contract))
     bound = []
     for row in rows:
         metadata = row.get('officegym')

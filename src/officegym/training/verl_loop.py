@@ -3,11 +3,12 @@
 Inherits the pinned upstream Continuous Token path: generated IDs are not
 reconstructed from decoded tool calls. The training launcher must enable logprobs.
 """
+import json
 from uuid import uuid4
 from pathlib import Path
 from verl.experimental.agent_loop.agent_loop import register
 from verl.experimental.agent_loop.tool_agent_loop import ToolAgentLoop,AgentState
-from officegym.harness.loop import initial_messages
+from officegym.harness.loop import initial_messages,PARSE_FEEDBACK
 from officegym.tools.schema import tool_schemas
 from .registry import REGISTRY
 from .token_budget import TokenLedger,GenerationBudget
@@ -38,6 +39,10 @@ class OfficeGymAgentLoop(ToolAgentLoop):
         self._generation_budget = GenerationBudget(trusted['max_generation_tokens'],trusted['max_context_tokens'])
         self._generation_uncertain = False
         self._invalid_tool_batch = False
+        self._parse_failures = 0
+        self._parse_exhausted = False
+        self._parse_retry_limit = trusted.get('parse_retries',2)
+        if type(self._parse_retry_limit) is not int or self._parse_retry_limit<0:raise ValueError('finite native parse retry budget required')
         self._context_response_limit = False
         self._turn_limit_reached = False
         ledger = TokenLedger(trusted['token_ledger_path'],trusted['global_rollout_token_limit'])
@@ -63,7 +68,7 @@ class OfficeGymAgentLoop(ToolAgentLoop):
             output = await super().run(sampling_params,priority=priority,**kwargs)
             if output.response_logprobs is None:
                 raise ValueError('native rollout logprobs required; enable backend reporting')
-            reason = ('invalid_tool_batch' if self._invalid_tool_batch else 'generation_budget' if self._generation_budget.stopped else 'response_limit' if self._context_response_limit or len(output.response_ids)>=self.response_length else 'agent_turn_limit' if self._turn_limit_reached else 'policy_terminated')
+            reason = ('parse_error' if self._parse_exhausted else 'generation_budget' if self._generation_budget.stopped else 'response_limit' if self._context_response_limit or len(output.response_ids)>=self.response_length else 'agent_turn_limit' if self._turn_limit_reached else 'policy_terminated')
             terminal = REGISTRY.finalize(trajectory,input_ids=output.response_ids,response_mask=output.response_mask,
                                          token_roles=['assistant' if bit else 'tool' for bit in output.response_mask],
                                          logprobs=output.response_logprobs,actor_version=actor,termination_reason=reason)
@@ -124,7 +129,25 @@ class OfficeGymAgentLoop(ToolAgentLoop):
         self._generation_uncertain = False
         if state==AgentState.TERMINATED and ((self.max_assistant_turns and agent_data.assistant_turns>=self.max_assistant_turns) or (self.max_user_turns and agent_data.user_turns>=self.max_user_turns)):
             self._turn_limit_reached=True
+        if state==AgentState.TERMINATED and not self._turn_limit_reached and len(agent_data.response_mask)<self.response_length and not agent_data.tool_calls:
+            return await self._retry_parse(agent_data)
         return state
+
+    async def _retry_parse(self,agent_data):
+        self._parse_failures+=1
+        if self._parse_failures>self._parse_retry_limit:
+            self._parse_exhausted=True
+            return AgentState.TERMINATED
+        previous=list(agent_data.messages)
+        agent_data.messages.append({'role':'user','content':PARSE_FEEDBACK})
+        merge,mask,probs=await self.ct_merge_context_msg(previous,agent_data.messages,agent_data.prompt_ids,agent_data.response_mask,agent_data.response_logprobs if agent_data.response_logprobs else None,tools=getattr(agent_data,'_active_tool_schemas',self.tool_schemas))
+        if self._generation_budget.stopped or self._context_response_limit:
+            return AgentState.TERMINATED
+        agent_data.prompt_ids=merge.token_ids
+        agent_data.response_mask=mask
+        if agent_data.response_logprobs:agent_data.response_logprobs=probs or []
+        agent_data.user_turns+=1
+        return AgentState.GENERATING
 
     async def _call_tool(self,tool_call,tools_kwargs,agent_data):
         # The episode lease owns the world. Avoid upstream parse/name errors that
@@ -136,7 +159,13 @@ class OfficeGymAgentLoop(ToolAgentLoop):
     async def _handle_processing_tools_state(self,agent_data):
         if not single_call(agent_data.tool_calls):
             self._invalid_tool_batch = True
-            return AgentState.TERMINATED
+            return await self._retry_parse(agent_data)
+        call=agent_data.tool_calls[0]
+        try:arguments=json.loads(call.arguments)
+        except (ValueError,TypeError):arguments=None
+        if not isinstance(call.name,str) or not isinstance(arguments,dict):
+            return await self._retry_parse(agent_data)
+        self._parse_failures=0
         before=(list(agent_data.prompt_ids),list(agent_data.response_mask),list(agent_data.response_logprobs))
         state = await super()._handle_processing_tools_state(agent_data)
         if self._generation_budget.stopped:

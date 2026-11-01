@@ -14,6 +14,9 @@ class RolloutContractTests(unittest.TestCase):
         bound = bind_rollout_rows(rows,contract)
         self.assertEqual(bound[0]['officegym']['token_ledger_path'],bound[1]['officegym']['token_ledger_path'])
         self.assertNotIn('max_generation_tokens',rows[0]['officegym'])
+        self.assertEqual(bound[0]['officegym']['parse_retries'],2)
+        with self.assertRaisesRegex(ValueError,'overrides'):
+            bind_rollout_rows([dict(officegym=dict(instance_dir='/data/task',parse_retries=0))],self.contract)
         with self.assertRaisesRegex(ValueError,'overrides'):
             bind_rollout_rows([dict(officegym=dict(instance_dir='/data/task',global_rollout_token_limit=2000))],contract)
 
@@ -24,3 +27,9 @@ class RolloutContractTests(unittest.TestCase):
             validate_rollout_contract(self.contract,1000,'another')
         with self.assertRaisesRegex(ValueError,'absolute'):
             validate_rollout_contract({**self.contract,'token_ledger_path':'local.sqlite'},1000,'checkpoint')
+
+    def test_parse_retry_budget_is_finite_explicit_and_shared(self):
+        for value in (-1,True,1.5,None):
+            with self.assertRaises(ValueError):validate_rollout_contract({**self.contract,'parse_retries':value},1000,'checkpoint')
+        contract=validate_rollout_contract({**self.contract,'parse_retries':0},1000,'checkpoint')
+        self.assertEqual(bind_rollout_rows([{'officegym':{'instance_dir':'/data/task'}}],contract)[0]['officegym']['parse_retries'],0)

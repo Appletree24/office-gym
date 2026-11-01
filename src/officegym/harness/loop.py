@@ -20,6 +20,21 @@ def wall_clock_identity():
     return hashlib.sha256(canonical(identity).encode()).hexdigest()
 
 
+PARSE_FEEDBACK='Return one valid tool call with object arguments.'
+
+
+def invalid_response_history(turn):
+    # Keep the model's failed response as inert assistant text. Never turn an
+    # unvalidated batch into executable tool-call history or echo usage metadata.
+    content=turn.content if isinstance(turn.content,str) else ''
+    raw=turn.raw if isinstance(turn.raw,dict) else {}
+    choices=raw.get('choices',[])
+    message=choices[0].get('message',{}) if isinstance(choices,list) and len(choices)==1 and isinstance(choices[0],dict) else {}
+    if isinstance(message,dict) and isinstance(message.get('tool_calls'),list) and message['tool_calls']:
+        content+='\n'+canonical({'tool_calls':message['tool_calls']})
+    return {'role':'assistant','content':content}
+
+
 @dataclass(frozen=True)
 class Budget:
     tool_calls: int = 200
@@ -232,12 +247,14 @@ class Harness:
                     break
                 if not isinstance(turn.tool,str) or not isinstance(turn.arguments,dict):
                     failures += 1
-                    message = {'role':'user','content':'Return one valid tool call with object arguments.'}
+                    message = {'role':'user','content':PARSE_FEEDBACK}
                     log({'kind':'parse_failure','consecutive_failures':failures,'message':message if failures<=self.budget.parse_retries else None})
                     if failures > self.budget.parse_retries:
                         self.state = 'PARSE_ERROR'
                         break
-                    self.messages.append(message)
+                    failed_response=invalid_response_history(turn)
+                    self.messages.extend((failed_response,message))
+                    log({'kind':'parse_retry_history','assistant_message':failed_response,'feedback':message})
                     continue
                 failures = 0
                 operation = self.journal.prepare(turn.tool,turn.arguments) if self.journal and turn.tool in WRITES else uuid.uuid4().hex if turn.tool in WRITES else None
