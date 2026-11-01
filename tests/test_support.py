@@ -32,6 +32,17 @@ def fixtures():
     return rows, plan
 
 class StatisticsTests(unittest.TestCase):
+    def test_runtime_evidence_cannot_be_relabelled_as_multiple_repeats(self):
+        rows,plan=fixtures()
+        for index,row in enumerate(rows):row['artifact_path']='/tmp/authored_stats_fixture_'+str(index)
+        self.assertEqual(len(analysis.select_and_validate(rows,plan,'a','b','id_test')),12)
+        original=rows[1]['artifact_path'];rows[1]['artifact_path']='/tmp/../tmp/authored_stats_fixture_0'
+        with self.assertRaisesRegex(ValueError,'Repeated runtime artifact'):
+            analysis.select_and_validate(rows,plan,'a','b','id_test')
+        rows[1]['artifact_path']=original;del rows[0]['artifact_path']
+        with self.assertRaisesRegex(ValueError,'Complete runtime artifact'):
+            analysis.select_and_validate(rows,plan,'a','b','id_test')
+
     def test_model_revision_drift_within_group_rejected(self):
         rows,plan=fixtures()
         rows[0]['model_version']='changed'

@@ -84,6 +84,13 @@ def select_and_validate(rows, plan, group_a, group_b, split, repeats=3):
         raise ValueError("No selected results or planned runs")
     for row in selected:
         validate_row(row)
+    if any('artifact_path' in row for row in selected):
+        paths=[]
+        for row in selected:
+            path=row.get('artifact_path')
+            if not isinstance(path,str) or not path.strip():raise ValueError('Complete runtime artifact paths required when evidence paths are supplied')
+            paths.append(Path(path).resolve())
+        if len(paths)!=len(set(paths)):raise ValueError('Repeated runtime artifact directory across result rows')
     for row in planned:
         if not all(field in row for field in KEY_FIELDS + TASK_FIELDS):
             raise ValueError("Run plan missing key/task metadata")
