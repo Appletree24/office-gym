@@ -10,13 +10,16 @@ from .export import result_row
 from .plan import run_key,missing_runs,P1
 
 
-def evaluate_batch(manifest_path,plan_path,config_path,out,*,group,split,max_runs,max_generated_tokens,execute=evaluate_instance,resume=False):
+def evaluate_batch(manifest_path,plan_path,config_path,out,*,group,split,max_runs,max_generated_tokens,execute=evaluate_instance,resume=False,dataset_freeze=None):
     if group not in P1 or split not in ('dev','id_test','combo_test','unseen_test'):
         raise ValueError('invalid planned experiment selection')
     if type(max_runs) is not int or max_runs<1 or type(max_generated_tokens) is not int or max_generated_tokens<1:
         raise ValueError('explicit finite batch budgets required')
     manifest_path,plan_path,config_path = map(lambda p:Path(p).resolve(),(manifest_path,plan_path,config_path))
     validate_dataset(manifest_path)
+    if dataset_freeze is not None:
+        from officegym.tasks.freeze import verify_frozen_dataset
+        verify_frozen_dataset(dataset_freeze,manifest_path)
     fingerprint = hashlib.sha256(plan_path.read_bytes()).hexdigest()
     if Path(str(plan_path)+'.sha256').read_text().strip()!=fingerprint:
         raise ValueError('frozen plan checksum mismatch')
@@ -38,6 +41,8 @@ def evaluate_batch(manifest_path,plan_path,config_path,out,*,group,split,max_run
     root = Path(out)
     selection = dict(group=group,split=split,plan_sha256=fingerprint,max_runs=max_runs,max_generated_tokens=max_generated_tokens,
                      config_sha256=hashlib.sha256(config_path.read_bytes()).hexdigest(),dataset_sha256=hashlib.sha256(manifest_path.read_bytes()).hexdigest())
+    if dataset_freeze is not None:
+        selection['dataset_freeze_sha256']=hashlib.sha256(Path(dataset_freeze).read_bytes()).hexdigest()
     if resume:
         if json.loads((root/'selection.json').read_text())!=selection:
             raise ValueError('resume configuration, dataset, plan or budgets changed')

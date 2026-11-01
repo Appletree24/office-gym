@@ -65,6 +65,7 @@ def main():
     batch.add_argument('--out',required=True)
     batch.add_argument('--experiment',required=True)
     batch.add_argument('--split',required=True)
+    batch.add_argument('--dataset-freeze',help='Verify dataset admission receipt before any model calls')
     batch.add_argument('--resume',action='store_true')
     batch.add_argument('--max-runs',type=int,required=True)
     batch.add_argument('--max-generated-tokens',type=int,required=True)
@@ -89,7 +90,27 @@ def main():
     calibration.add_argument('--out',required=True)
     calibration.add_argument('--min-success-rate',type=float,required=True)
     calibration.add_argument('--max-success-rate',type=float,required=True)
+    freeze = commands.add_parser('freeze',help='Admit a content-bound dataset only after real dev calibration')
+    freeze.add_argument('--dataset',required=True)
+    freeze.add_argument('--grader',required=True)
+    freeze.add_argument('--calibration-plan',required=True)
+    freeze.add_argument('--calibration-results',required=True)
+    freeze.add_argument('--min-success-rate',type=float,required=True)
+    freeze.add_argument('--max-success-rate',type=float,required=True)
+    freeze.add_argument('--out',required=True)
+    verify = commands.add_parser('verify-dataset-freeze',help='Verify frozen data, calibration artifacts and implementation hashes')
+    verify.add_argument('--freeze',required=True)
     args = parser.parse_args()
+    if args.command == 'freeze':
+        from officegym.tasks.freeze import freeze_dataset
+        report=freeze_dataset(args.dataset,args.grader,args.calibration_plan,args.calibration_results,args.out,min_success_rate=args.min_success_rate,max_success_rate=args.max_success_rate)
+        print(json.dumps(dict(dataset_frozen=True,manifest_sha256=report['manifest_sha256'],receipt=args.out)))
+        return
+    if args.command == 'verify-dataset-freeze':
+        from officegym.tasks.freeze import verify_frozen_dataset
+        report=verify_frozen_dataset(args.freeze)
+        print(json.dumps(dict(verified=True,manifest_sha256=report['manifest_sha256'])))
+        return
     if args.command == 'audit-dev-calibration':
         from officegym.eval.calibration import audit_calibration
         report=audit_calibration(args.manifest,args.plan,args.results,args.out,min_success_rate=args.min_success_rate,max_success_rate=args.max_success_rate)
@@ -120,7 +141,7 @@ def main():
         print(json.dumps(train(args.config,args.data,args.out),indent=2))
     if args.command == 'evaluate':
         from officegym.eval.batch import evaluate_batch
-        print(json.dumps(evaluate_batch(args.manifest,args.plan,args.config,args.out,group=args.experiment,split=args.split,max_runs=args.max_runs,max_generated_tokens=args.max_generated_tokens,resume=args.resume),indent=2))
+        print(json.dumps(evaluate_batch(args.manifest,args.plan,args.config,args.out,group=args.experiment,split=args.split,max_runs=args.max_runs,max_generated_tokens=args.max_generated_tokens,resume=args.resume,dataset_freeze=args.dataset_freeze),indent=2))
     if args.command == 'collect-teacher':
         from officegym.training.collect import collect
         print(json.dumps(collect(args.manifest,args.config,args.out,max_attempts_per_task=args.max_attempts_per_task,max_episodes=args.max_episodes,max_generated_tokens=args.max_generated_tokens,max_tasks=args.max_tasks,selection_seed=args.selection_seed),indent=2))
