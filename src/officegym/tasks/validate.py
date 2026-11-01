@@ -52,7 +52,7 @@ def validate_dataset(manifest_path):
                 check_holdout(signature,manifest.get('heldout_signatures',[['AttendeeChanged','DocumentVersionPublished']]))
         dag = task['dependency_dag']
         from .dependencies import dependency_edges,ANNOTATION_VERSION,GENERATOR_VERSION,optional_observation_scopes
-        expected_edges=dependency_edges(dag['nodes'])
+        expected_edges=dependency_edges(dag['nodes'],proposal_bound=task['public_task'].get('proposal_bound_availability',False))
         if [list(edge) for edge in expected_edges]!=[list(edge) for edge in dag['edges']]:raise ValueError('declared DAG edges differ from required-stage policy')
         if manifest.get('task_generator_version')==GENERATOR_VERSION and (task.get('dependency_annotation_version')!=ANNOTATION_VERSION or task.get('optional_observation_tools')!=list(optional_observation_scopes(task['public_task'])) or task.get('optional_observation_scopes')!=optional_observation_scopes(task['public_task'])):raise ValueError('missing or incorrect required-dependency annotation')
         depth = dependency_depth(dag['nodes'],dag['edges'])

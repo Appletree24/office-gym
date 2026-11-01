@@ -1,15 +1,18 @@
 """Dependency edges express prerequisites, not one solver's chosen ordering."""
 
 
-GENERATOR_VERSION='generator-v6-replies-before-invitation'
-ANNOTATION_VERSION='required-dependency-annotation-v4'
+GENERATOR_VERSION='generator-v7-proposal-bound-controls'
+ANNOTATION_VERSION='required-dependency-annotation-v5'
 
 
-def dependency_edges(nodes):
+def dependency_edges(nodes,*,proposal_bound=False):
     if len(nodes)!=len(set(nodes)) or 'plan' not in nodes or 'invite' not in nodes:
         raise ValueError('unique workflow stages including plan and invite required')
     if 'read_material' in nodes:raise ValueError('optional material reading cannot be an intrinsic dependency')
     if 'read_handoff_chain' in nodes:raise ValueError('optional handoff reading cannot be an intrinsic dependency')
+    if proposal_bound:
+        if 'collect_replies' not in nodes or 'confirm' not in nodes:raise ValueError('proposal-bound replies require collection and confirmation stages')
+        return list(zip(nodes,nodes[1:]))
     preparation = {'collect_replies'}
     core = [node for node in nodes if node not in preparation]
     edges = list(zip(core,core[1:]))
@@ -24,7 +27,7 @@ def annotate_required_dependencies(task):
     """Correct only observation metadata; public task and business inputs are untouched."""
     from .integrity import dependency_depth,dependency_width
     updated=dict(task);nodes=[node for node in task['dependency_dag']['nodes'] if node not in ('read_material','read_handoff_chain')]
-    edges=dependency_edges(nodes)
+    edges=dependency_edges(nodes,proposal_bound=task['public_task'].get('proposal_bound_availability',False))
     updated.update(dependency_dag=dict(nodes=nodes,edges=edges),dependency_path_length=dependency_depth(nodes,edges),dependency_width=dependency_width(nodes,edges),dependency_annotation_version=ANNOTATION_VERSION,optional_observation_tools=list(optional_observation_scopes(task['public_task'])),optional_observation_scopes=optional_observation_scopes(task['public_task']))
     return updated
 

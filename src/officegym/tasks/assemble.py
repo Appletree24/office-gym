@@ -42,7 +42,7 @@ def assemble(config_path,out):
     manifest = dict(status='development_dataset_not_frozen',task_generator_version=GENERATOR_VERSION,reference_solver_version=REFERENCE_VERSION,tool_schema_version=TOOL_SCHEMA_VERSION,instances=entries,heldout_signatures=HELDOUT_SIGNATURES,
                     limitations=['Combo split uses one template and two perturbations: its held-out signature requires two events, so P0/P1 cells are inapplicable; interpret only within this composition.',
                                  'ID scan currently uses T04 composition only; interpret within this composition.',
-                                 'Required DAG width varies between 1 and 2; reply collection is a parallel prerequisite of invitation. Fixed-width controlled scans require redesign or stratification before freezing.',
+                                 'Controlled scans use proposal-bound availability and width 1; unscoped atomic reply templates retain width 2 and must be reported separately.',
                                  'Depth dependence requires additional skip-stage adversarial audit before freezing.'])
     (root/'manifest.json').write_text(canonical(manifest)+'\n')
     report = validate_dataset(root/'manifest.json')

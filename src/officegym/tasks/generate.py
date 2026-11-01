@@ -65,6 +65,8 @@ def generate(out,templates=TRAIN_TEMPLATES,count_per_template=3,seed=None,split=
                 nodes += ['meeting_end','minutes','todos']
             if template in ('T02','D01') or (depth_level is not None and depth_level>=2):
                 public['collect_availability'] = True
+                if depth_level is not None:
+                    public.update(proposal_bound_availability=True,approval_after_availability=True)
                 nodes.insert(1,'collect_replies')
                 rules['reply_rules'] = {person:{'availability':{'delay_seconds':180,'response':'provided','facts':{'available_windows':[[base+12000,base+18000]]}}} for person in ('owner','client')}
             if template=='U03':

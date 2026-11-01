@@ -19,7 +19,8 @@ class ControlledNuisanceTests(unittest.TestCase):
                 entry=manifest['instances'][0];source=path/entry['path']
                 task=json.loads((source/'task.json').read_text())
                 self.assertEqual(task['control_profile'],PROFILE)
-                self.assertEqual(task['dependency_width'],1 if depth==1 else 2)
+                self.assertEqual(task['dependency_width'],1)
+                self.assertEqual(task['public_task'].get('proposal_bound_availability',False),depth>=2)
                 self.assertEqual(validate_dataset(path/'manifest.json')['instances'],1)
                 with sqlite3.connect(source/'initial_world.sqlite') as db:
                     documents.append(db.execute('SELECT content FROM documents').fetchone()[0])

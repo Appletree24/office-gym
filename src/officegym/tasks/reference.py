@@ -3,7 +3,7 @@ import json
 from officegym.env.world import canonical as canonical_followup
 
 
-REFERENCE_VERSION='reference-v3-batched-availability'
+REFERENCE_VERSION='reference-v4-proposal-bound-availability'
 PROPOSAL_REFERENCE_VARIANT='reference-v4-proposal-bound-availability'
 PUBLIC_MATERIAL_VARIANT='reference-v3-public-material-refs-only-v1'
 PUBLIC_HANDOFF_VARIANT='reference-v3-unique-public-other-approver-v1'
