@@ -1,7 +1,7 @@
 """Dependency edges express prerequisites, not one solver's chosen ordering."""
 
 
-GENERATOR_VERSION='generator-v7-proposal-bound-controls'
+GENERATOR_VERSION='generator-v9-public-calendar-approval-constraints'
 ANNOTATION_VERSION='required-dependency-annotation-v5'
 
 

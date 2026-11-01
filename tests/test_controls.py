@@ -54,6 +54,8 @@ class ControlledNuisanceTests(unittest.TestCase):
                               ('approval_after_availability',False),('requires_approval',False)]:
                 with self.subTest(key=key):
                     task=json.loads(json.dumps(original));task['public_task'][key]=value
+                    from officegym.tasks.public_contract import completion_requirements
+                    task['public_task']['completion_requirements']=completion_requirements(task['public_task'])
                     source.write_text(json.dumps(task))
                     initial=source.parent/'initial_world.sqlite'
                     with sqlite3.connect(initial) as db:

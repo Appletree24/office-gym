@@ -29,6 +29,10 @@ def tool_schemas():
                 properties[key]['items'] = {'type':'string'}
             if key == 'approval_id' and tool['name']=='mail.send':
                 properties[key]['type'] = ['string','null']
+        if tool['name']=='calendar.update':
+            properties['patch'].update(properties={'title':{'type':'string'},'start_at':{'type':'integer'},'end_at':{'type':'integer'},'participant_ids':{'type':'array','items':{'type':'string'}},'document_refs':{'type':'array','items':{'type':'object'}}},additionalProperties=False)
+        if tool['name']=='mail.send':
+            properties['request'].update(properties={'type':{'type':'string','enum':['availability','clarification']},'meeting_id':{'type':'string'},'meeting_version':{'type':'integer'}},required=['type'],additionalProperties=False)
         result.append({'name':tool['name'],'description':tool['description'], 'inputSchema':{'type':'object','properties':properties,'required':tool['required_arguments'],'additionalProperties':False}})
     return result
 

@@ -102,7 +102,7 @@ class Dispatcher:
             from .calendar import calendar
             return calendar(self, name, args)
         if name == 'office.get_context':
-            return {key: self.meta(key) for key in ('principal_id', 'deadline', 'public_task')}
+            return dict({key:self.meta(key) for key in ('principal_id','deadline','public_task')},max_tool_calls=self.max_calls,tool_calls_used=self.meta('tool_calls'))
         if name == 'clock.wait':
             if type(args['until']) is not int or args['until'] < self.meta('sim_time'):
                 raise ToolError('INVALID_ARGUMENT')

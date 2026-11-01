@@ -4,7 +4,7 @@
   "model": {
     "student": "Qwen/Qwen3-4B-Instruct-2507",
     "revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
-    "teacher": "SET_BY_OPERATOR",
+    "teacher": "deepseek-v4-pro",
     "api_key_env": "OFFICEGYM_API_KEY"
   },
   "counts": {
@@ -75,7 +75,8 @@
   "operator_budget": {
     "max_api_cost_usd": null,
     "max_gpu_hours": null,
-    "require_explicit_values_before_model_jobs": true
+    "require_explicit_values_before_model_jobs": false,
+    "authorization": "unlimited_by_user"
   },
   "evaluation": {
     "repeats": 3,
@@ -139,8 +140,8 @@
   },
   "versions": {
     "environment": "env-v1",
-    "tools": "tools-v3-filtered-public-events",
-    "generator": "generator-v1",
+    "tools": "tools-v4-explicit-public-workflow",
+    "generator": "generator-v9-public-calendar-approval-constraints",
     "harness": "harness-v1",
     "reward": "reward-v1",
     "eval_grader": "eval-v1"

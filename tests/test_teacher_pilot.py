@@ -61,7 +61,7 @@ class TeacherPilotTests(unittest.TestCase):
                 return dict(termination=dict(state='DECLARED_DONE',generated_tokens=1,input_tokens=1,tool_calls=1),runner_wall_seconds=.1,grade=dict(full_success=True))
             # Isolate selection; authored returns are not world/model evidence.
             from unittest.mock import patch
-            with patch('officegym.training.collect.verify_teacher_world'):
+            with patch('officegym.training.collect.verify_teacher_world'),patch('officegym.training.collect.extract_trajectory'):
                 report=collect(source,path,root/'collection',max_attempts_per_task=3,max_episodes=6,max_generated_tokens=600,max_tasks=2,run=execute)
             self.assertEqual(seen,[row['instance_id'] for row in record['tasks']])
             self.assertEqual(report['selected_tasks'],2);self.assertEqual(report['attempted_tasks'],2)

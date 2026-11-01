@@ -4,6 +4,7 @@ Operator-supplied prices and provider token limits are assumptions, not an invoi
 or a universal tokenizer guarantee. Overruns are retained and stop future calls.
 """
 import argparse
+import copy
 from decimal import Decimal,InvalidOperation,ROUND_CEILING,ROUND_FLOOR
 import hashlib
 import hmac
@@ -45,6 +46,11 @@ def validate(config):
     for key in ('api_key_env','gateway_key_env'):
         if not isinstance(config[key],str) or not re.fullmatch('[A-Za-z_][A-Za-z0-9_]{0,127}',config[key]):raise ValueError('credential environment variable name required')
     if config['api_key_env']==config['gateway_key_env']:raise ValueError('local and upstream credentials must be separate')
+    options=config.get('provider_options',{})
+    if options!={} and (endpoint.hostname!='api.deepseek.com' or options not in ({'thinking':{'type':'disabled'}},{'thinking':{'type':'enabled'},'reasoning_effort':'low'})):raise ValueError('only declared fixed DeepSeek thinking settings are supported')
+    if config.get('tool_name_encoding') not in (None,'dots_to_double_underscore'):raise ValueError('unsupported tool namespace encoding')
+    if config.get('provider_protocol') not in (None,'single_json_action'):raise ValueError('unsupported provider action protocol')
+    if config.get('provider_protocol') and config.get('tool_name_encoding'):raise ValueError('JSON-action protocol already preserves canonical tool names')
     if not Path(config['ledger_path']).is_absolute():raise ValueError('absolute persistent API ledger required')
     for key in ('max_requests','max_input_tokens','max_output_tokens'):
         if type(config[key]) is not int or config[key]<1:raise ValueError('positive finite gateway request/token caps required')
@@ -146,6 +152,25 @@ class Gateway:
         if any(not isinstance(message,dict) or set(message)-{'role','content','tool_calls','tool_call_id'} or message.get('role') not in ('system','user','assistant','tool') or (message.get('content') is not None and not isinstance(message['content'],str)) for message in messages):raise ValueError('text-only chat messages required')
         temperature=payload.get('temperature',0)
         if type(temperature) not in (int,float) or not math.isfinite(temperature) or not 0<=temperature<=2:raise ValueError('finite sampling temperature required')
+        json_names=set()
+        if self.config.get('provider_protocol')=='single_json_action':
+            from .provider_protocols import encode_single_action
+            payload,json_names=encode_single_action(payload)
+        mapping={}
+        if self.config.get('tool_name_encoding'):
+            payload=copy.deepcopy(payload)
+            for tool in payload.get('tools',[]):
+                original=tool['function']['name'];encoded=original.replace('.','__')
+                if not re.fullmatch('[A-Za-z0-9_-]+',encoded) or encoded in mapping:raise ValueError('tool name codec collision or unsupported name')
+                mapping[encoded]=original;tool['function']['name']=encoded
+            reverse={value:key for key,value in mapping.items()}
+            for message in payload['messages']:
+                for call in message.get('tool_calls',[]):
+                    name=call['function']['name']
+                    if name not in reverse:raise ValueError('historical tool missing from declared namespace')
+                    call['function']['name']=reverse[name]
+        if self.config.get('provider_options'):
+            payload=dict(payload,**self.config['provider_options'])
         # Conservative byte/framing guard. Provider token bounds remain a declared contract.
         encoded=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
         framing=128*(len(messages)+len(payload.get('tools',[]))+1)
@@ -160,8 +185,22 @@ class Gateway:
             if response.get('model')!=self.config['model_version']:
                 ledger.uncertain(identity,'ModelIdentityMismatch',block=True)
                 raise ValueError('provider model identity differs from pinned teacher version')
-            response=dict(response)
+            original_response=copy.deepcopy(response) if mapping or json_names else None
+            response=copy.deepcopy(response)
+            if json_names:
+                from .provider_protocols import decode_single_action
+                response=decode_single_action(response,json_names)
+            if mapping:
+                for choice in response.get('choices',[]):
+                    for call in choice.get('message',{}).get('tool_calls',[]):
+                        name=call['function']['name']
+                        if name not in mapping:raise ValueError('provider returned undeclared tool namespace')
+                        call['function']['name']=mapping[name]
             response['_officegym_gateway']=dict(source_kind='software_fixture' if self.fixture else 'configured_upstream',request_id=identity,model_version=self.config['model_version'],pricing_policy_sha256=ledger.policy_sha256)
+            if mapping:
+                response['_officegym_gateway'].update(tool_name_mapping=mapping,provider_response=original_response)
+            if json_names:
+                response['_officegym_gateway'].update(provider_protocol='single_json_action',provider_request=payload,provider_response=original_response)
             return response
         except BaseException as error:
             if identity is not None:ledger.uncertain(identity,type(error).__name__)

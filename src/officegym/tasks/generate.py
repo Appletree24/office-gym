@@ -115,6 +115,9 @@ def generate(out,templates=TRAIN_TEMPLATES,count_per_template=3,seed=None,split=
                 rules['approval_rules']['replacement'] = {'decision':'grant','delay_seconds':180}
             if template=='U02':
                 rules['approval_rules']['replacement'] = {'decision':'grant','delay_seconds':180}
+            from .public_contract import completion_requirements
+            public['duration_seconds']=1800
+            public['completion_requirements']=completion_requirements(public)
             with tempfile.TemporaryDirectory() as temporary:
                 world = World.create(Path(temporary)/'seed.sqlite',sim_time=base,deadline=public['deadline_at'],principal_id='assistant')
                 try:

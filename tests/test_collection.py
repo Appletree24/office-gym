@@ -58,7 +58,7 @@ class CollectionTests(unittest.TestCase):
                 return dict(termination=dict(state='DECLARED_DONE' if success else 'PARSE_ERROR',generated_tokens=11 if success else 7,input_tokens=13 if success else 10,tool_calls=3 if success else 2),runner_wall_seconds=.7 if success else .5,grade={'full_success':success})
             # Isolate resource accounting; these authored returns have no world evidence.
             from unittest.mock import patch
-            with patch('officegym.training.collect.verify_teacher_world'):
+            with patch('officegym.training.collect.verify_teacher_world'),patch('officegym.training.collect.extract_trajectory'):
                 report=collect(root/'tasks'/'manifest.json',path,root/'collection',max_attempts_per_task=3,max_episodes=3,max_generated_tokens=300,run=execute)
             self.assertTrue(report['usage_complete'])
             self.assertEqual(report['resources']['reported_generated_tokens']['reported_total'],18)
@@ -114,3 +114,35 @@ class CollectionTests(unittest.TestCase):
             rows=[json.loads(line) for line in (root/'collection/attempts.jsonl').read_text().splitlines()]
             self.assertTrue(all(not row['world_evidence_verified'] and row['admission_error']=='teacher_world_evidence_invalid' for row in rows))
             self.assertEqual(json.loads((root/'collection/successful_runs.json').read_text()),[])
+
+    def test_world_success_with_rejected_trajectory_does_not_stop_retrying(self):
+        import json,tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        from officegym.tasks.generate import generate
+        from officegym.training.data import RejectedTrajectory
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);generate(root/'tasks',templates=['T01'],count_per_template=1,split='train')
+            config=dict(endpoint='http://localhost:8000/v1/chat/completions',model='fixture',model_version='fixture',tokenizer_path=str(root),tokenizer_revision='fixture',mode='full',budget=dict(tool_calls=10,generated_tokens=100,wall_seconds=20,parse_retries=2),max_context_tokens=8192,max_output_tokens=512)
+            path=root/'config.json';path.write_text(json.dumps(config))
+            def execute(*args):return dict(termination=dict(state='DECLARED_DONE',generated_tokens=1),grade=dict(full_success=True))
+            with patch('officegym.training.collect.verify_teacher_world'),patch('officegym.training.collect.extract_trajectory',side_effect=RejectedTrajectory('parse_retried_source_not_losslessly_reconstructable')):
+                report=collect(root/'tasks/manifest.json',path,root/'collection',max_attempts_per_task=2,max_episodes=2,max_generated_tokens=200,run=execute)
+            self.assertEqual(report['attempts'],2);self.assertEqual(report['successful_tasks'],0)
+            rows=[json.loads(line) for line in (root/'collection/attempts.jsonl').read_text().splitlines()]
+            self.assertTrue(all(row['world_evidence_verified'] and not row['success'] and row['admission_error']=='parse_retried_source_not_losslessly_reconstructable' for row in rows))
+
+    def test_world_success_with_rejected_trace_is_not_a_collection_success(self):
+        import json,tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        from officegym.tasks.generate import generate
+        from officegym.training.data import RejectedTrajectory
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);generate(root/'tasks',templates=['T01'],count_per_template=1,split='train')
+            config=dict(endpoint='http://localhost:8000/v1/chat/completions',model='fixture',model_version='fixture',tokenizer_path=str(root),tokenizer_revision='fixture',mode='full',budget=dict(tool_calls=10,generated_tokens=100,wall_seconds=20,parse_retries=2),max_context_tokens=8192,max_output_tokens=512)
+            path=root/'config.json';path.write_text(json.dumps(config))
+            def execute(*args):return dict(termination=dict(state='DECLARED_DONE',generated_tokens=1),grade=dict(full_success=True))
+            with patch('officegym.training.collect.verify_teacher_world'),patch('officegym.training.collect.extract_trajectory',side_effect=RejectedTrajectory('parse_retried_source_not_losslessly_reconstructable')):
+                report=collect(root/'tasks/manifest.json',path,root/'collection',max_attempts_per_task=2,max_episodes=2,max_generated_tokens=200,run=execute)
+            self.assertEqual(report['attempts'],2);self.assertEqual(report['successful_tasks'],0);self.assertEqual(json.loads((root/'collection/successful_runs.json').read_text()),[])

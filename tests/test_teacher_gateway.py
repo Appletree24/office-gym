@@ -173,3 +173,29 @@ class TeacherCostSnapshotTests(unittest.TestCase):
             ledger=CostLedger(value);ledger.close();value['max_requests']+=1
             with self.assertRaisesRegex(ValueError,'policy differs'):snapshot(value,out)
             self.assertFalse(out.exists())
+
+    @patch.dict(os.environ,{'TEST_TEACHER_LOCAL_KEY':'local-fixture-secret'})
+    def test_deepseek_fixed_mode_and_tool_codec_roundtrip_preserves_provider_response(self):
+        with tempfile.TemporaryDirectory() as directory:
+            value=config(directory,endpoint='https://api.deepseek.com/chat/completions',max_input_tokens=4096,provider_options={'thinking':{'type':'disabled'}},tool_name_encoding='dots_to_double_underscore');observed=[]
+            def transport(body,seconds):
+                observed.append(body)
+                result=response();result['choices'][0]['message']['tool_calls']=[dict(id='new',type='function',function=dict(name='office__get_context',arguments='{}'))]
+                return result
+            gateway=Gateway(value,transport);request=payload();request.update(parallel_tool_calls=False,tools=[dict(type='function',function=dict(name='office.get_context',description='read',parameters={'type':'object'}))],messages=[dict(role='assistant',content=None,tool_calls=[dict(id='old',type='function',function=dict(name='office.get_context',arguments='{}'))]),dict(role='tool',tool_call_id='old',content='{}')])
+            result=gateway.request(request)
+            self.assertEqual(observed[0]['thinking'],{'type':'disabled'});self.assertIs(observed[0]['parallel_tool_calls'],False);self.assertEqual(observed[0]['tools'][0]['function']['name'],'office__get_context');self.assertEqual(observed[0]['messages'][0]['tool_calls'][0]['function']['name'],'office__get_context')
+            self.assertEqual(request['tools'][0]['function']['name'],'office.get_context')
+            self.assertEqual(result['choices'][0]['message']['tool_calls'][0]['function']['name'],'office.get_context')
+            self.assertEqual(result['_officegym_gateway']['provider_response']['choices'][0]['message']['tool_calls'][0]['function']['name'],'office__get_context')
+            with self.assertRaisesRegex(ValueError,'unsupported billable'):gateway.request({**request,'thinking':{'type':'enabled'}})
+
+    @patch.dict(os.environ,{'TEST_TEACHER_LOCAL_KEY':'local-fixture-secret'})
+    def test_tool_codec_collision_fails_before_billable_reservation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            value=config(directory,tool_name_encoding='dots_to_double_underscore');gateway=Gateway(value,lambda *args:self.fail('collision dispatched'))
+            request=payload();request['tools']=[dict(type='function',function={'name':name}) for name in ('a.b','a__b')]
+            with self.assertRaisesRegex(ValueError,'collision'):gateway.request(request)
+            ledger=CostLedger(value)
+            try:self.assertEqual(ledger.summary()['requests'],0)
+            finally:ledger.close()

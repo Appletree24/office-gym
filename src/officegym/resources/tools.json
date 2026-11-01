@@ -1,5 +1,5 @@
 {
-  "version": "tools-v3-filtered-public-events",
+  "version": "tools-v4-explicit-public-workflow",
   "status": "interface_contract_not_server_implementation",
   "common": {
     "trusted_injected": [
@@ -116,7 +116,7 @@
       "required_arguments": [
         "after_seq"
       ],
-      "description": "Poll visible business-event facts after a sequence. Optional kinds selects event types. Filtered pagination advances past inspected visible events; retain earlier cursors if querying other types later. Audit snapshots stay private; read object content through its authorized business tool."
+      "description": "Poll visible business-event facts after a sequence. Optional kinds selects event types. Filtered pagination advances past inspected visible events; retain earlier cursors if querying other types later. Audit snapshots stay private; read object content through its authorized business tool. kinds 示例（区分大小写）：MeetingRescheduleRequested、AttendeeChanged、DocumentVersionPublished、ReplyArrived、ApprovalGranted、MinutesAvailable、Notification。 kinds 示例（区分大小写）：MeetingRescheduleRequested、AttendeeChanged、DocumentVersionPublished、ReplyArrived、ApprovalGranted、MinutesAvailable、Notification。"
     },
     {
       "name": "mail.send",
@@ -127,7 +127,7 @@
         "subject",
         "body"
       ],
-      "description": "发送协调、邀请、改期或跟进消息；正式消息须带 meeting_id、meeting_version、approval_id（如任务要求）。逐收件人写入 outbox。"
+      "description": "发送协调、正式邀请、改期或跟进；kind=invitation/reschedule 会安排会议。正式消息携带 meeting_id/meeting_version/approval_id（如需）。请求可用时间用 kind=coordination 和 request={type:availability, meeting_id/meeting_version(如需绑定)}；回复异步到达。"
     },
     {
       "name": "calendar.create",
@@ -148,7 +148,7 @@
         "expected_version",
         "patch"
       ],
-      "description": "乐观锁修改语义字段，增加业务版本；使旧审批摘要失效。"
+      "description": "修改 title/start_at/end_at/participant_ids/document_refs；不能 patch status。增加业务版本并使旧审批失效；发送 invitation/reschedule 才会安排会议。"
     },
     {
       "name": "calendar.cancel",

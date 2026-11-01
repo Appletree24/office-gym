@@ -20,3 +20,10 @@ class OperatorInputTests(unittest.TestCase):
     def test_nonfinite_boolean_and_nonpositive_caps_rejected(self):
         for value in (True,0,-1,float('inf'),float('nan'),'unlimited'):
             self.assertFalse(self.check(usd=value)['operator_inputs_ready'])
+
+    def test_explicit_user_unlimited_authorization_removes_total_cap_requirement(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'config.json';config=dict(model={'teacher':'deepseek-v4-pro'},operator_budget=dict(authorization='unlimited_by_user',max_api_cost_usd=None,max_gpu_hours=None))
+            path.write_text(json.dumps(config));report=check_operator_inputs(path)
+            self.assertTrue(report['operator_inputs_ready']);self.assertEqual(report['resource_authorization'],'unlimited_by_user');self.assertFalse(report['jobs_started'])
+            config['model']['teacher']='SET_BY_OPERATOR';path.write_text(json.dumps(config));self.assertFalse(check_operator_inputs(path)['operator_inputs_ready'])

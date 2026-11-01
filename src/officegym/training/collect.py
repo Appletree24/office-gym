@@ -11,6 +11,7 @@ from officegym.tasks.validate import validate_dataset
 from officegym.eval.configured import evaluate_instance,validate_config
 from .teacher_world import verify_teacher_world
 from .data import RejectedTrajectory
+from .teacher import extract_trajectory
 from .pilot import select_training_tasks,selection_record,DEFAULT_SEED
 
 
@@ -81,9 +82,10 @@ def collect(manifest_path,config_path,out,*,max_attempts_per_task,max_episodes,m
                     try:
                         verify_teacher_world(directory,result)
                         world_verified=True
-                    except RejectedTrajectory as exc:
-                        admission_error=str(exc)
-                row = dict(instance_id=entry['instance_id'],attempt_id=attempt,run_dir=str(directory),success=candidate_success and world_verified,world_evidence_verified=world_verified,admission_error=admission_error,reported_input_tokens=count('input_tokens'),reported_tool_calls=count('tool_calls'),reported_wall_seconds=reported_wall,collector_wall_seconds=elapsed,generation_cap_overrun=overrun,state=result['termination']['state'],reported_generated_tokens=tokens,reserved_generated_tokens=episode_cap,execution_error_type=execution_error)
+                        extract_trajectory(directory)
+                    except (RejectedTrajectory,OSError) as exc:
+                        admission_error=str(exc) if isinstance(exc,RejectedTrajectory) else 'missing_teacher_artifact'
+                row = dict(instance_id=entry['instance_id'],attempt_id=attempt,run_dir=str(directory),success=candidate_success and world_verified and admission_error is None,world_evidence_verified=world_verified,admission_error=admission_error,reported_input_tokens=count('input_tokens'),reported_tool_calls=count('tool_calls'),reported_wall_seconds=reported_wall,collector_wall_seconds=elapsed,generation_cap_overrun=overrun,state=result['termination']['state'],reported_generated_tokens=tokens,reserved_generated_tokens=episode_cap,execution_error_type=execution_error)
                 attempts.append(row)
                 ledger.write(canonical(row)+'\n')
                 ledger.flush()
