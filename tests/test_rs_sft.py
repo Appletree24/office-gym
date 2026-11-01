@@ -53,7 +53,8 @@ class RSSFTTests(unittest.TestCase):
             (root/'samples.jsonl').write_text('fixture\n')
             manifest=dict(kind='sft_dataset_not_training_result',accepted=[{}],manual_alignment_review_status='passed',eval_grader_version=EVAL_GRADER_VERSION,reward_version=REWARD_VERSION,harness_version=HARNESS_VERSION,
                           samples_sha256=hashlib.sha256((root/'samples.jsonl').read_bytes()).hexdigest(),training_branch='rs_sft',source_export=str(export),source_export_sha256=hashlib.sha256(export.read_bytes()).hexdigest(),starting_checkpoint_sha256=record['checkpoint_sha256'])
-            (root/'manifest.json').write_text(json.dumps(manifest))
+            from review_fixtures import reviewed_fixture
+            reviewed_fixture(root,manifest)
             plan=dict(training_branch='rs_sft',model_path=str(checkpoint),model_revision='fixture',max_steps=1,checkpoint_interval_steps=1,max_wall_seconds=60,
                       locked_packages={name:'fixture' for name in ('torch','transformers','trl','peft','datasets')},max_sequence_tokens=8192,micro_batch_size=1,gradient_accumulation_steps=1,learning_rate=0.0001,lora={})
             self.assertEqual(validate_plan(plan,root)['training_branch'],'rs_sft')

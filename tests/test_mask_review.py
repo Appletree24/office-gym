@@ -17,7 +17,7 @@ class FixtureTokenizer:
 
 
 def fixture(root,count=5):
-    root.mkdir();samples=[];conversations=[]
+    root.mkdir(exist_ok=True);samples=[];conversations=[]
     tokenizer=FixtureTokenizer()
     for index in range(count):
         conversation=dict(instance_id=f'fixture-{index}',messages=[dict(role='user',content='<script>bad()</script>')]+[row for turn in range(2) for row in (dict(role='assistant',tool_call=dict(id=str(turn),name='fixture',arguments={})),dict(role='tool',content='fixture',tool_call_id=str(turn)))],tools=[])

@@ -13,7 +13,8 @@ def admit_fixture(root,evidence):
     (base/'config.json').write_text('{}');(base/'model.safetensors').write_bytes(b'authored fixture base, not model weights')
     data=root/'fixture_data';data.mkdir();(data/'samples.jsonl').write_text('authored format fixture, not teacher data\n')
     manifest=dict(kind='sft_dataset_not_training_result',accepted=[{'fixture':True}],manual_alignment_review_status='passed',samples_sha256=digest(data/'samples.jsonl'),harness_version=HARNESS_VERSION,eval_grader_version=EVAL_GRADER_VERSION,reward_version=REWARD_VERSION)
-    (data/'manifest.json').write_text(json.dumps(manifest))
+    from review_fixtures import reviewed_fixture
+    reviewed_fixture(data,manifest)
     config=dict(model_path=str(base.resolve()),model_revision='authored-fixture',max_steps=100,max_wall_seconds=60,locked_packages={k:'fixture-not-installed' for k in ('torch','transformers','trl','peft','datasets')},max_sequence_tokens=8192,micro_batch_size=1,gradient_accumulation_steps=1,learning_rate=.0001,lora={},checkpoint_interval_steps=1)
     path=root/'resolved_train_config.json';path.write_text(json.dumps(config))
     return admit_training(evidence,stage='sft',data_manifest=data/'manifest.json',config=path)

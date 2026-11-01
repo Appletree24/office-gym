@@ -52,11 +52,13 @@ def prepare(data_dir,out,tokenizer,*,tokenizer_manifest):
                 rows.append(''.join('<td>'+escape(value)+'</td>' for value in (position,token,piece,role,mask,label))+'</tr>')
             sections.append('<section><h2>'+escape(identity)+'</h2><details><summary>Original conversation and tools</summary><pre>'+escape(json.dumps(conversation,ensure_ascii=False,indent=2))+'</pre></details><table><thead><tr>'+''.join('<th>'+name+'</th>' for name in ('Position','Token ID','Vocabulary piece','Role','Loss mask','Label'))+'</tr></thead><tbody>'+''.join(rows)+'</tbody></table></section>')
     (root/'review.html').write_text('<!doctype html><html lang="en"><meta charset="utf-8"><title>SFT manual mask review — pending</title><style>body{font-family:monospace;margin:2rem}table{border-collapse:collapse;width:100%}td,th{border:1px solid #aaa;padding:.3rem;white-space:pre-wrap;overflow-wrap:anywhere}.actor{background:#d9f5df}thead{position:sticky;top:0;background:white}pre{white-space:pre-wrap}</style><h1>Five-sample manual mask review — pending</h1><p>Green rows contribute loss. Vocabulary pieces are raw tokenizer symbols; they are not independently decoded text. Check tool observations/user/system labels are -100, assistant spans and tool-call boundaries are correct. This packet does not attest human review or teacher provenance.</p>'+''.join(sections)+'</html>')
-    evidence=dict(schema='officegym-mask-review-packet-v1',status='pending',data_dir=str(source),source_scope=manifest.get('source_kind','dataset-provenance-not-verified-by-viewer'),
+    (root/'source_manifest.json').write_bytes((source/'manifest.json').read_bytes())
+    from .review_admission import dataset_identity
+    evidence=dict(dataset_identity_sha256=dataset_identity(manifest),schema='officegym-mask-review-packet-v1',status='pending',data_dir=str(source),source_scope=manifest.get('source_kind','dataset-provenance-not-verified-by-viewer'),
                   tokenizer=tokenizer_manifest,mask_tokenizer=tokenizer.mask_manifest(),
                   source_files={name:digest(source/name) for name in ('manifest.json','samples.jsonl','conversations.jsonl')},
                   sample_ids=[sample['instance_id'] for sample,_ in selected],
-                  files={name:digest(root/name) for name in ('tokens.jsonl','review.html')})
+                  files={name:digest(root/name) for name in ('tokens.jsonl','review.html','source_manifest.json')})
     (root/'packet.json').write_text(canonical(evidence)+'\n')
     checklist=dict(packet_sha256=digest(root/'packet.json'),status='pending',reviewer=None,reviewed_at_utc=None,
                    samples=[dict(instance_id=sample['instance_id'],assistant_spans_correct=None,nonassistant_loss_zero=None,tool_call_boundaries_correct=None,notes='') for sample,_ in selected],

@@ -250,4 +250,14 @@ PYTHONPATH=src .venv-tokenizer/bin/python -m officegym.training.mask_review --da
 
 命令核对数据／tokenizer 哈希，选择五条各含至少两次工具调用及观察的会话，用原生模板重算并逐项比对保存的 ID、角色、mask 和 label。生成可独立打开的 `review.html`、逐 token 的 `tokens.jsonl`、绑定源文件与页面哈希的 `packet.json` 和空白 `human_checklist.json`。页面绿色行参与 loss；词表片段展示原始 tokenizer 符号，不能当作逐 token 独立解码的自然文本。原始会话和工具 schema 可展开核对。检查用户／系统／工具观察为 label -100、assistant 监督范围及工具调用边界；不足五条多轮样本、源会话改变或重算不一致会拒绝输出。
 
-生成器不填写人工判断、不改数据 manifest，也不授予训练准入。当前 `artifacts/mask_review_authored_reference_v2/review/review.html` 是使用真实锁定 tokenizer 的参考夹具演示，包含 24,562 个 token，非 teacher 数据，人工审查状态仍为 pending。原有 SFT 状态字段尚需进一步绑定实际人工签署记录；不能仅将字段改为 passed 就宣称完成手册要求。
+生成器不填写人工判断、不改数据 manifest，也不授予训练准入。当前 `artifacts/mask_review_authored_reference_v2/review/review.html` 是使用真实锁定 tokenizer 的参考夹具演示，包含 24,562 个 token，非 teacher 数据，人工审查状态仍为 pending。SFT 状态字段现已绑定人工检查记录；仅将字段改为 passed 会被训练准入拒绝。
+
+
+人工检查五条样本后，在 `human_checklist.json` 填写 reviewer、带时区的 reviewed_at_utc、逐样本的三项布尔判断和具体 notes，只有全部通过时才将其 status 改为 passed。以下命令只校验并登记已经填写的记录，不生成判断：
+
+```bash
+PYTHONPATH=src .venv/bin/python -m officegym.training.review_admission --data /absolute/BUILT_SFT_DATA --packet /absolute/REVIEW/packet.json --checklist /absolute/REVIEW/human_checklist.json --verify-only
+PYTHONPATH=src .venv/bin/python -m officegym.training.review_admission --data /absolute/BUILT_SFT_DATA --packet /absolute/REVIEW/packet.json --checklist /absolute/REVIEW/human_checklist.json
+```
+
+登记以原子替换更新数据 manifest 的审查状态与 packet／checklist 路径和哈希。数据身份指纹排除这两个审查登记字段，原 manifest 副本仍随审查包保存，避免哈希循环。SFT、RS-SFT 和训练血缘准入都会重新检查五个不同多轮样本、逐 token 对齐、所有检查项、审查包及源文件哈希。旧版审查包需要重新生成，不能仅补填 passed。记录属于具名人工声明，系统不提供审查者身份认证，也不能证明实际检查行为；软件测试中合成的记录明确标为夹具，不作为真实人工审查证据。

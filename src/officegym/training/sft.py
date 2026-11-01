@@ -50,6 +50,8 @@ def validate_plan(plan,data_dir):
     samples = Path(data_dir)/'samples.jsonl'
     if hashlib.sha256(samples.read_bytes()).hexdigest()!=manifest['samples_sha256']:
         raise ValueError('SFT sample hash mismatch')
+    from .review_admission import require_review
+    require_review(data_dir,manifest)
     return manifest
 
 
