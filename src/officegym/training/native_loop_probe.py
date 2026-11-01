@@ -154,6 +154,9 @@ async def run(instance,model,out):
     assert rows[-1]['generation_requests']==1 and rows[-1]['termination_reason']=='agent_turn_limit'
     rows.append(await case('parse_generation_limit',[invalid],generation_budget=3,cap_outputs=True))
     assert rows[-1]['generation_requests']==1 and rows[-1]['termination_reason']=='generation_budget' and rows[-1]['generated_tokens']==3
+    filtered='<tool_call>\n{"name":"events.poll","arguments":{"after_seq":0,"kinds":["Notification"]}}\n</tool_call><|im_end|>'
+    rows.append(await case('filtered_public_event_poll',[filtered,finish]))
+    assert rows[-1]['generation_requests']==2 and rows[-1]['termination_reason']=='policy_terminated'
     assert not REGISTRY.entries
     assert hashlib.sha256((instance/'initial_world.sqlite').read_bytes()).hexdigest()==before
     local_hashes={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in (Path(__file__),Path(__file__).with_name('verl_loop.py'),Path(__file__).with_name('worker_plugins.py'),Path(__file__).with_name('actor_version.py'))}
