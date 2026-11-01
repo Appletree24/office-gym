@@ -15,6 +15,10 @@ def generate_cases(out):
     designs += [('todo_legal',True,[]),('todo_duplicate',False,['duplicate_todo']),('todo_cancelled',False,['missing_or_incorrect_todo']),('todo_done',True,[]),('todo_blocked',True,[]),('todo_duplicate_cancelled',False,['duplicate_todo']),('todo_extra_wrong_owner',False,['unrelated_data_mutation']),('todo_extra_wrong_due',False,['unrelated_data_mutation'])]
     designs += [('meeting_alternative_draft',True,[]),('meeting_unrelated_draft',False,['unrelated_data_mutation']),('meeting_unrelated_invited',False,['unrelated_data_mutation','unrequested_meeting_invitation']),('meeting_wrong_title_send_repaired',False,['unrequested_meeting_invitation'])]
     designs += [('invite_members_legal',True,[]),('invite_members_partial',False,['unrequested_invitation_participants']),('invite_members_partial_cancelled',False,['unrequested_invitation_participants']),('invite_members_changed',True,[])]
+    designs += [(name,True,[]) for name in ('invite_time_legal_start','invite_time_legal_end','invite_time_legal_requested')]
+    designs += [(name,False,['invitation_time_constraint_violation']) for name in ('invite_time_early_repaired','invite_time_late_repaired','invite_time_duration_repaired')]
+    designs += [('invite_time_wrong_requested_repaired',False,['reschedule_request_not_honored_at_send'])]
+    designs += [('invite_time_at_start',True,[]),('invite_time_past',False,['invitation_time_constraint_violation'])]
     for name,expected,violations in designs:
         directory = root/name
         directory.mkdir()
@@ -42,6 +46,12 @@ def generate_cases(out):
                 spec['allowed_recipient_ids']=['b','c']
                 with world.db:
                     world.db.execute('INSERT INTO scheduled_events VALUES (?,?,?,?,?,?,?,?)',('members_changed',500,1,'AttendeeChanged','{}',canonical({'meeting_selector':{'organizer_id':'a','title':'Review'},'participant_ids':['c']}),'["a","b","c"]','pending'))
+            with sqlite3.connect(directory/'initial.sqlite') as snapshot:world.db.backup(snapshot)
+        if name.startswith('invite_time_'):
+            spec['title']='Review'
+            if 'requested' in name:
+                with world.db:
+                    world.db.execute('INSERT INTO scheduled_events VALUES (?,?,?,?,?,?,?,?)',('reschedule',500,1,'MeetingRescheduleRequested','{}',canonical({'meeting_selector':{'organizer_id':'a','title':'Review'},'start_at':6000,'end_at':7800}),'["a","b"]','pending'))
             with sqlite3.connect(directory/'initial.sqlite') as snapshot:world.db.backup(snapshot)
         if name.startswith('deadline_'):
             spec['deadline_at'] = {'deadline_before':191,'deadline_at':190,'deadline_after':189}[name]
@@ -84,7 +94,11 @@ def generate_cases(out):
             start = 4000 if name=='alternative_slot' else 3000
             if name=='timezone_offset':
                 start += 8*3600
-            meeting_args = dict(title='Review',participant_ids=['b'],start_at=start,end_at=start+(900 if name=='wrong_duration' else 1800))
+            if name=='invite_time_legal_end':start=6200
+            if name=='invite_time_early_repaired':start=2999
+            if name=='invite_time_late_repaired':start=6201
+            duration=900 if name=='wrong_duration' else 1799 if name=='invite_time_duration_repaired' else 1800
+            meeting_args = dict(title='Review',participant_ids=['b'],start_at=start,end_at=start+duration)
             if name.startswith('invite_members_'):meeting_args['participant_ids']=spec['required_participant_ids']
             if name=='stale_material':
                 meeting_args['document_refs'] = [dict(document_id='brief',version=1)]
@@ -102,6 +116,8 @@ def generate_cases(out):
                     trace.write(canonical(dict(kind='offline_snapshot_mutation',table='approvals',id=approval,field='expires_at',before=None,after=expiry,note='Authored expiry boundary fixture; no model expiry mutation tool exists'))+'\n')
                 if name=='approval_old_version':
                     meeting=call('calendar.update',dict(meeting_id=meeting['id'],expected_version=meeting['version'],patch={'title':'Review revised'}),'revise_meeting')
+            if name=='invite_time_at_start':call('clock.wait',{'until':2970},None)
+            if name=='invite_time_past':call('clock.wait',{'until':5000},None)
             args = dict(recipient_ids=['c'] if name=='wrong_recipient' else ['b'],kind='invitation',subject='Review',body='',meeting_id=meeting['id'],meeting_version=meeting['version'])
             if name.startswith('invite_members_'):args['recipient_ids']=spec['required_participant_ids']
             if approval is not None:args['approval_id']=approval
@@ -138,6 +154,19 @@ def generate_cases(out):
                 call('clock.wait',{'until':500},None)
                 revised=call('calendar.get',{'meeting_id':meeting['id']},None)
                 call('mail.send',dict(recipient_ids=['c'],kind='reschedule',subject='Review',body='',meeting_id=revised['id'],meeting_version=revised['version']),'changed_members_invite')
+            if name.startswith('invite_time_'):
+                def resend(key):
+                    call('mail.send',dict(recipient_ids=['b'],kind='reschedule',subject='Review',body='',meeting_id=meeting['id'],meeting_version=meeting['version']),key)
+                if 'requested' in name:
+                    call('clock.wait',{'until':500},None)
+                    if name=='invite_time_wrong_requested_repaired':
+                        meeting=call('calendar.update',dict(meeting_id=meeting['id'],expected_version=meeting['version'],patch={'start_at':4500,'end_at':6300}),'wrong_request_slot')
+                        resend('wrong_request_invite')
+                    meeting=call('calendar.update',dict(meeting_id=meeting['id'],expected_version=meeting['version'],patch={'start_at':6000,'end_at':7800}),'request_slot')
+                    resend('request_invite')
+                elif name.endswith('repaired'):
+                    meeting=call('calendar.update',dict(meeting_id=meeting['id'],expected_version=meeting['version'],patch={'start_at':3000,'end_at':4800}),'correct_slot')
+                    resend('corrected_invite')
             call('task.finish',{'summary':'done'},None)
             if hidden:
                 # No deletion tool exists: this is explicitly an offline snapshot mutation.
@@ -152,8 +181,8 @@ def generate_cases(out):
                         mutations.append(dict(table='messages',id=hidden['message_id']))
                 trace.write(canonical(dict(kind='offline_snapshot_mutation',deleted=mutations,note='No deletion tool exists; original receipt and MailSent event retained'))+'\n')
         world.close()
-        cases.append(dict(case_id=name,category='approval_authorization' if name.startswith('approval_') else 'todo_creation_scope' if name.startswith('todo_') else 'meeting_creation_scope' if name.startswith('meeting_') else 'invitation_membership' if name.startswith('invite_members_') else name,label_source='hand_authored_tool_and_offline_fixture_v3',expected_success=expected,expected_violations=violations,spec=name+'/spec.json',final_world=name+'/final.sqlite',mutation_location=name+'/actions.jsonl'))
-        if name=='unrelated_cancellation' or name.startswith(('todo_','meeting_','invite_members_')):
+        cases.append(dict(case_id=name,category='approval_authorization' if name.startswith('approval_') else 'todo_creation_scope' if name.startswith('todo_') else 'meeting_creation_scope' if name.startswith('meeting_') else 'invitation_membership' if name.startswith('invite_members_') else 'invitation_timing' if name.startswith('invite_time_') else name,label_source='hand_authored_tool_and_offline_fixture_v3',expected_success=expected,expected_violations=violations,spec=name+'/spec.json',final_world=name+'/final.sqlite',mutation_location=name+'/actions.jsonl'))
+        if name=='unrelated_cancellation' or name.startswith(('todo_','meeting_','invite_members_','invite_time_')):
             cases[-1]['initial_world'] = name+'/initial.sqlite'
     (root/'cases.json').write_text(canonical(cases))
     return len(cases)

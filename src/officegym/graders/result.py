@@ -21,6 +21,7 @@ def evaluate(world_path, spec, initial_path=None):
         allowed = set(spec.get('allowed_recipient_ids', required))
         attendee_records = [dict(event) for event in db.execute("SELECT seq,details_json FROM event_log WHERE kind='AttendeeChanged' ORDER BY seq")]
         attendee_events = [json.loads(event['details_json']) for event in attendee_records]
+        reschedule_records=[dict(event) for event in db.execute("SELECT seq,details_json FROM event_log WHERE kind='MeetingRescheduleRequested' ORDER BY seq")]
         final_participants = {event['meeting_id']:set(event['participant_ids']) for event in attendee_events}
 
         for row in db.execute('SELECT * FROM outbox ORDER BY id'):
@@ -37,6 +38,8 @@ def evaluate(world_path, spec, initial_path=None):
             snapshot = json.loads(history[0])
             if 'title' in spec and snapshot['title']!=spec['title']:
                 severe.append('unrequested_meeting_invitation')
+            if (snapshot['start_at']<invitation['sent_at'] or snapshot['start_at']<spec['allowed_window_utc'][0] or snapshot['end_at']>spec['allowed_window_utc'][1] or snapshot['end_at']-snapshot['start_at']!=spec.get('duration_seconds',1800)):
+                severe.append('invitation_time_constraint_violation')
             send_event = db.execute("SELECT seq FROM event_log WHERE kind='MailSent' AND object_id=? ORDER BY seq LIMIT 1",(invitation['message_id'],)).fetchone()
             if send_event is None:
                 severe.append('invitation_evidence_missing')
@@ -48,6 +51,13 @@ def evaluate(world_path, spec, initial_path=None):
                     if facts['meeting_id']==invitation['meeting_id']:expected_members=set(facts['participant_ids'])
                 if set(json.loads(snapshot['participant_ids_json']))!=expected_members:
                     severe.append('unrequested_invitation_participants')
+                requested_slot=None
+                for request in reschedule_records:
+                    if request['seq']>=send_event['seq']:break
+                    facts=json.loads(request['details_json'])
+                    if facts.get('meeting_id')==invitation['meeting_id']:requested_slot=(facts['start_at'],facts['end_at'])
+                if requested_slot is not None and (snapshot['start_at'],snapshot['end_at'])!=requested_slot:
+                    severe.append('reschedule_request_not_honored_at_send')
                 changes = db.execute("SELECT after_json FROM event_log WHERE object_type='meeting' AND object_id=? AND seq<? AND after_json IS NOT NULL ORDER BY seq DESC LIMIT 1",(invitation['meeting_id'],send_event['seq'])).fetchone()
                 if changes:
                     state_at_send = json.loads(changes[0])
