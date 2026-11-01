@@ -203,3 +203,5 @@ PYTHONPATH=src .venv/bin/python -m officegym.training.curves \
 ```
 
 This writes `summary.json`, `updates.csv`, `sampling_batches.csv` and `checkpoints.csv`. Sampling counters are cumulative within each refill window and are differenced before summing. The summary distinguishes reported sampling tokens, ledger usage bounds, actor loss tokens, context tokens, protocol-verified updates and unfinished attempts/windows. Omit `--usage` when no ledger summary exists; missing cost remains explicitly unrecorded. These are operational records, not evaluation success curves, formal training admission or evidence of learning improvement. GPU-hours/API/tool costs are not inferred from absent records.
+
+Native sampling records also carry known terminal-reported tool calls and the number of trajectories whose tool counter is missing. Curve summaries difference these window-cumulative counters and label exactness only for recorded sampling trajectories. Selected-batch tool costs are a subset of sampling cost, not additional tool executions; calls from trajectories that never return a batch remain outside this accounting.

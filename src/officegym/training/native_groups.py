@@ -14,7 +14,7 @@ class NativeGroupWindow:
             raise ValueError('bounded complete effective-group profile required')
         self.initial=initial;self.step=step;self.actor=actor_identity(initial,step)
         self.target=target;self.size=size;self.cap=target*multiplier
-        self.parts=[];self.candidates=0;self.effective=0;self.tokens=0;self.rounds=0
+        self.parts=[];self.candidates=0;self.effective=0;self.tokens=0;self.rounds=0;self.tool_calls_known=0;self.tool_trajectories_unknown=0
         self.histogram=Counter();self.seen=set();self.uids=set();self.started=time.monotonic()
 
     def add(self,batch,rewards,extras):
@@ -33,6 +33,8 @@ class NativeGroupWindow:
         self.uids.update(groups)
         # Validate the entire generated batch before accepting any group.
         trajectories=[]
+        tool_counts=columns.get('officegym_tool_calls',[None]*len(batch))
+        if len(tool_counts)!=len(batch) or any(value is not None and (type(value) is not int or value<0) for value in tool_counts):raise ValueError('invalid native tool-call usage')
         for index,score in enumerate(scores):
             if validate_actor_metadata(columns['officegym'][index],self.initial)!=self.step:raise ValueError('native refill metadata actor changed')
             if type(score) not in (int,float) or not math.isfinite(score) or score not in (-1,0,1):raise ValueError('native terminal rewards must be finite 1/0/-1')
@@ -48,6 +50,8 @@ class NativeGroupWindow:
             values=[scores[i] for i in indices]
             for i in indices:
                 self.tokens+=columns['officegym_generated_tokens'][i]
+                if tool_counts[i] is None:self.tool_trajectories_unknown+=1
+                else:self.tool_calls_known+=tool_counts[i]
                 self.histogram[str(float(scores[i]))]+=1
             if len(set(values))>1:
                 self.effective+=1
@@ -61,7 +65,7 @@ class NativeGroupWindow:
         ready=len(self.parts)==self.target
         exhausted=self.candidates==self.cap
         status='ready' if ready else 'insufficient_effective_groups' if exhausted else 'refill'
-        stats=dict(status=status,actor_version=self.actor,actor_update_step=self.step,candidate_groups=self.candidates,effective_groups=self.effective,selected_groups=len(self.parts),effective_group_ratio=self.effective/self.candidates,rollout_tokens=self.tokens,refill_attempts=max(0,self.candidates-self.target),refill_rounds=self.rounds-1,generation_batches=self.rounds,reward_histogram=dict(self.histogram),window_seconds=time.monotonic()-self.started)
+        stats=dict(status=status,actor_version=self.actor,actor_update_step=self.step,candidate_groups=self.candidates,effective_groups=self.effective,selected_groups=len(self.parts),effective_group_ratio=self.effective/self.candidates,rollout_tokens=self.tokens,tool_calls_known=self.tool_calls_known,tool_trajectories_unknown=self.tool_trajectories_unknown,tool_calls_exact=self.tool_trajectories_unknown==0,refill_attempts=max(0,self.candidates-self.target),refill_rounds=self.rounds-1,generation_batches=self.rounds,reward_histogram=dict(self.histogram),window_seconds=time.monotonic()-self.started)
         if not ready:return None,stats
         from verl import DataProto
         selected=DataProto.concat(self.parts)

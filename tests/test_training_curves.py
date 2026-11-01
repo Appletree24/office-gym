@@ -64,3 +64,31 @@ class TrainingCurveTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'events';path.write_text(json.dumps(dict(sample(100,2,0),kind='effective_group_sampling_end'))+'\n')
             with self.assertRaisesRegex(ValueError,'orphan sampling end'):summarize(path)
+
+    def test_sampling_tool_costs_are_differenced_and_missing_counts_stay_unknown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'events'
+            a=sample(100,2,0);b=sample(250,4,0,'insufficient_effective_groups')
+            a['payload'].update(tool_calls_known=10,tool_trajectories_unknown=0)
+            b['payload'].update(tool_calls_known=18,tool_trajectories_unknown=0)
+            path.write_text(''.join(json.dumps(row)+'\n' for row in (a,b)))
+            value=summarize(path)
+            self.assertEqual([row['batch_tool_calls_known'] for row in value['sampling_batches']],[10,8])
+            self.assertEqual(value['totals']['reported_sampling_tool_calls_known'],18)
+            self.assertTrue(value['totals']['reported_sampling_tool_calls_exact'])
+            b['payload']['tool_trajectories_unknown']=1
+            path.write_text(''.join(json.dumps(row)+'\n' for row in (a,b)))
+            self.assertFalse(summarize(path)['totals']['reported_sampling_tool_calls_exact'])
+            with path.open('a') as stream:stream.write(json.dumps(sample(90,2,0))+'\n')
+            value=summarize(path)
+            self.assertEqual(value['totals']['reported_sampling_tool_calls_known'],18)
+            self.assertIsNone(value['totals']['reported_sampling_tool_trajectories_unknown'])
+            self.assertFalse(value['totals']['reported_sampling_tool_calls_exact'])
+
+    def test_sampling_tool_counters_cannot_regress_or_disappear(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'events';a=sample(100,2,0);a['payload'].update(tool_calls_known=10,tool_trajectories_unknown=0)
+            for fields in ({'tool_calls_known':9,'tool_trajectories_unknown':0},{},{'tool_calls_known':True,'tool_trajectories_unknown':0}):
+                b=sample(200,4,0);b['payload'].update(fields)
+                path.write_text(''.join(json.dumps(row)+'\n' for row in (a,b)))
+                with self.subTest(fields=fields),self.assertRaises(ValueError):summarize(path)

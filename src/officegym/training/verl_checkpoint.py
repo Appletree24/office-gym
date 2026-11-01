@@ -90,7 +90,9 @@ def native_batch_usage(batch):
     if any(type(value) is not int or value<0 for value in generated) or len(generated)!=len(batch) or sum(generated)!=actor_tokens:
         raise ValueError('selected native generation counts differ from actor token mask')
     if actor_tokens<1:raise ValueError('native optimizer requires positive supervised actor tokens')
-    return dict(selected_trajectories=len(batch),actor_loss_tokens=actor_tokens,forward_context_tokens=context_tokens,selected_generated_tokens=sum(generated),context_only_tokens=context_tokens-actor_tokens)
+    tool_counts=batch.non_tensor_batch.get('officegym_tool_calls',[None]*len(batch))
+    if len(tool_counts)!=len(batch) or any(value is not None and (type(value) is not int or value<0) for value in tool_counts):raise ValueError('invalid selected native tool-call usage')
+    return dict(selected_tool_calls_known=sum(value for value in tool_counts if value is not None),selected_tool_trajectories_unknown=sum(value is None for value in tool_counts),selected_trajectories=len(batch),actor_loss_tokens=actor_tokens,forward_context_tokens=context_tokens,selected_generated_tokens=sum(generated),context_only_tokens=context_tokens-actor_tokens)
 
 
 def observed_trainer_class(base,config,evidence):
