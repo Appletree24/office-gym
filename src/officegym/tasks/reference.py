@@ -4,6 +4,7 @@ from officegym.env.world import canonical as canonical_followup
 
 
 REFERENCE_VERSION='reference-v3-batched-availability'
+PROPOSAL_REFERENCE_VARIANT='reference-v4-proposal-bound-availability'
 PUBLIC_MATERIAL_VARIANT='reference-v3-public-material-refs-only-v1'
 PUBLIC_HANDOFF_VARIANT='reference-v3-unique-public-other-approver-v1'
 
@@ -48,7 +49,7 @@ def solve(task, call, *, material_observations=True, handoff_observations=True):
             handoff_approver=next(iter(candidates))
     people = task['required_participant_ids']
     start,end = task['allowed_window_utc']
-    if task.get('collect_availability'):
+    if task.get('collect_availability') and not task.get('proposal_bound_availability'):
         sent = invoke('mail.send',dict(recipient_ids=people,kind='coordination',subject='Availability',body='Please provide availability',request={'type':'availability'}),True)
         facts_by_person = {}
         after_message = sent['message_id']
@@ -79,6 +80,7 @@ def solve(task, call, *, material_observations=True, handoff_observations=True):
             left,right = facts['available_windows'][0]
             start,end = max(start,left),min(end,right)
     duration = task.get('duration_seconds',1800)
+    if task.get('proposal_bound_availability'):start=(start+end-duration)//2
     busy = invoke('calendar.query',dict(person_ids=people,start_at=start,end_at=end))
     while busy.get('next_cursor'):
         following = invoke('calendar.query',dict(person_ids=people,start_at=start,end_at=end,cursor=busy['next_cursor']))
@@ -104,6 +106,24 @@ def solve(task, call, *, material_observations=True, handoff_observations=True):
         invoke('todos.update',dict(todo_id=todo['id'],expected_version=todo['version'],patch={'status':'done'}),True)
     approver_id = handoff_approver or task.get('approver_id')
     def confirm(meeting):
+        if task.get('proposal_bound_availability'):
+            sent=invoke('mail.send',dict(recipient_ids=people,kind='coordination',subject='Proposal availability',body='Please confirm availability for this proposal',meeting_id=meeting['id'],meeting_version=meeting['version'],request={'type':'availability','meeting_id':meeting['id'],'meeting_version':meeting['version']}),True)
+            facts={};after=sent['message_id']
+            for _ in range(20):
+                invoke('clock.wait',{'until':task['deadline_at']})
+                for _ in range(20):
+                    thread=invoke('mail.get_thread',{'thread_id':sent['message_id'],'after_message_id':after})
+                    for message in thread['items']:
+                        if message['kind']=='reply' and message['sender_id'] in people:
+                            body=json.loads(message['body'])
+                            if body.get('response')=='provided':facts[message['sender_id']]=body['facts']
+                    if thread['items']:after=thread['items'][-1]['id']
+                    if not thread.get('next_message_id'):break
+                else:raise RuntimeError('proposal reply pagination budget exhausted')
+                if all(person in facts for person in people):break
+            else:raise RuntimeError('proposal availability replies unavailable')
+            if not all(any(left<=meeting['start_at'] and meeting['end_at']<=right for left,right in facts[person].get('available_windows',[])) for person in people):
+                raise RuntimeError('public proposal slot not supported by actual replies')
         approval_id = None
         if task.get('requires_approval'):
             approval = invoke('approvals.request',dict(approver_id=approver_id,meeting_id=meeting['id'],meeting_version=meeting['version']),True)
