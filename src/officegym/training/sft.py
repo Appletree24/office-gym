@@ -126,6 +126,7 @@ def train(plan_path,data_dir,out):
     from .admission import admit_training
     admit_training(evidence,stage=plan.get('training_branch','sft'),data_manifest=Path(data_dir)/'manifest.json',config=root/'resolved_train_config.json')
     evidence.event('tokenizer_data_check',0,tokenizer_check)
+    from .sft_updates import make_update_callback
     class WallBudget(TrainerCallback):
         def on_step_end(self,args,state,control,**kwargs):
             if time.monotonic()-started>=plan['max_wall_seconds']:
@@ -138,7 +139,7 @@ def train(plan_path,data_dir,out):
             if getattr(state,'is_world_process_zero',True):
                 evidence.checkpoint(root/'trainer'/('checkpoint-'+str(state.global_step)),state.global_step)
     if time.monotonic()-started>=plan['max_wall_seconds']:raise TimeoutError('training wall budget exhausted before model initialization')
-    trainer = make_trainer(plan,rows,root,tokenizer,[WallBudget()])
+    trainer = make_trainer(plan,rows,root,tokenizer,[WallBudget(),make_update_callback(evidence,lambda:trainer.accelerator.optimizer_step_was_skipped)])
     if time.monotonic()-started>=plan['max_wall_seconds']:raise TimeoutError('training wall budget exhausted during model initialization')
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()

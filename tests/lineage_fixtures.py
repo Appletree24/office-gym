@@ -23,6 +23,7 @@ def admit_fixture(root,evidence):
 def exported_sft_fixture(root):
     root=Path(root);root.mkdir(parents=True,exist_ok=True);evidence=TrainingEvidence(root);admission=admit_fixture(root,evidence)
     checkpoint=root/'checkpoint';checkpoint.mkdir();(checkpoint/'config.json').write_text('{}');(checkpoint/'model.safetensors').write_bytes(b'authored fixture checkpoint, not trained model')
+    authored_sft_updates(evidence,1)
     source=evidence.checkpoint(checkpoint,1)
     report=root/'equivalence.json';report.write_text(json.dumps(dict(passed=True,checks=['authored-unit-fixture-only'],exported_checkpoint_sha256=checkpoint_fingerprint(checkpoint)['checkpoint_sha256'],source_checkpoint_files_sha256=source['checkpoint_files_sha256'],optimizer_step=1)))
     path=root/'export.json';record=record_export(checkpoint,path,stage='sft',parent_hash=admission['parent_checkpoint_sha256'],training_manifest_hash=admission['data_manifest']['sha256'],versions={},equivalence_report=report,training_events=root/'training_events.jsonl',source_checkpoint=checkpoint,optimizer_step=1)
@@ -32,3 +33,14 @@ def exported_sft_fixture(root):
 def checkpoint_profile(root,maximum=5):
     root=Path(root).resolve()
     return dict(data={'train_batch_size':2},trainer=dict(total_training_steps=maximum,use_v1=False,save_freq=1,officegym_evidence_root=str(root),default_local_dir=str(root/'checkpoints'),officegym_verl_checkout=str(root/'verl'),resume_mode='disable'),actor_rollout_ref=dict(rollout={'n':2},actor=dict(strategy='fsdp',ppo_epochs=1,ppo_mini_batch_size=2,checkpoint=dict(async_save=False,save_contents=['model','optimizer','extra']))))
+
+
+def authored_sft_updates(evidence,through):
+    """Simulated events only; no optimizer, gradients or model execution."""
+    from officegym.training.sft_updates import UpdateRecorder,CONTRACT
+    recorder=getattr(evidence,'authored_fixture_recorder',None)
+    if recorder is None:
+        recorder=UpdateRecorder(evidence);evidence.authored_fixture_recorder=recorder
+    for step in range(recorder.completed+1,through+1):
+        recorder.attempt(step,dict(contract=CONTRACT,gradient_tensors=1,gradient_parameters=1,trainable_parameters=1,gradient_l2_norm=1.))
+        recorder.finish(step,skipped=False)

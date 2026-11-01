@@ -7,7 +7,7 @@ from officegym.eval.selection import freeze,select
 from officegym.eval.plan import freeze_plan
 from officegym.training.checkpoints import checkpoint_fingerprint,record_export
 from officegym.training.evidence import TrainingEvidence
-from lineage_fixtures import admit_fixture
+from lineage_fixtures import admit_fixture,authored_sft_updates
 
 
 class SelectionTests(unittest.TestCase):
@@ -17,12 +17,13 @@ class SelectionTests(unittest.TestCase):
         candidates=[];files={}
         evidence=TrainingEvidence(root)
         admission=admit_fixture(root,evidence)
-        for index,step in enumerate((10,5)):
+        for index,step in ((1,5),(0,10)):
             checkpoint=root/('checkpoint'+str(index));checkpoint.mkdir()
             (checkpoint/'config.json').write_text('{}')
             (checkpoint/'model.safetensors').write_bytes(('fixture-'+str(index)).encode())
             fingerprint=checkpoint_fingerprint(checkpoint)['checkpoint_sha256']
             export=root/('export'+str(index)+'.json')
+            authored_sft_updates(evidence,step)
             inventory=evidence.checkpoint(checkpoint,step)
             equivalence=root/('equivalence'+str(index)+'.json')
             equivalence.write_text(json.dumps(dict(passed=True,checks=['authored-fixture-not-real-equivalence'],exported_checkpoint_sha256=fingerprint,source_checkpoint_files_sha256=inventory['checkpoint_files_sha256'],optimizer_step=step)))

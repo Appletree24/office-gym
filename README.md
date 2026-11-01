@@ -285,3 +285,8 @@ SFT 构建 manifest 现在为每条接收样本保存源运行目录中 `result.
 训练配置可单独指定 tokenizer_revision；未指定时使用 model_revision。例如 RS-SFT 的模型 revision 可为已合并 SFT checkpoint 的身份，而 tokenizer_revision 仍锁定原 tokenizer revision。若数据使用了 template_kwargs，训练配置也须显式匹配。检查后仅在缺少 pad token 时沿用既有 EOS padding 回退。训练墙钟预算现在从入口开始，覆盖预检及 tokenizer 核对，并在模型初始化前后检查；单次长操作仍需外层 watchdog 才能硬中断。
 
 artifacts/runtime_tokenizer_admission_probe_v1 用真实锁定 tokenizer 对五条参考夹具重算全部 24,562 token／2,515 个因果监督位置，错误 revision 或改动模板均被拒绝。此探针没有加载模型权重、没有 teacher 调用、没有人工批准，不能作为完整 SFT 训练验收。
+
+
+SFT／RS-SFT 正式导出现在还要求逐步优化器调用证据。生产训练与原生回调探针共用回调：优化器调用前检查所有可用可训练梯度的有限性，以 FP64 累加平方范数，并记录梯度 tensor／元素数；调用返回后检查 Accelerate 的 optimizer_step_was_skipped，记录配对完成事件，再核对 Trainer global_step。非有限／缺失／不支持的梯度在调用前拒绝，跳步保留失败证据并停止；有限零梯度可以记录，不据此宣称学习提升。
+
+导出器只读取源 checkpoint 事件之前的冻结前缀，要求从 1 到声明 step 的全部尝试／完成事件按序匹配，拒绝跳步、重复、悬空尝试及 checkpoint 前的训练失败。正数 step、loss 日志或权重文件不能单独证明完成更新。旧的工程探针仍保留，缺这些证据的记录不能补写成正式训练。`artifacts/sft_update_native_cpu_fixture_v1` 仅以 1,016 参数随机微型 Transformer 验证真实 HF Trainer 两次调用及 NaN 拒绝，非 OfficeGym 正式训练，未加载预训练权重或 teacher 数据。

@@ -100,6 +100,9 @@ def bind_formal_training_source(events_path,checkpoint,optimizer_step,stage,pare
     if payload['stage']!=stage or payload['parent_checkpoint_sha256']!=parent_hash or payload['data_manifest']['sha256']!=manifest_hash:
         raise ValueError('export lineage differs from admitted training stage/parent/data')
     source=bind_training_source(events_path,checkpoint,optimizer_step)
+    if stage in ('sft','rs_sft'):
+        from .sft_updates import verify_updates
+        verify_updates(events_path,source['prefix_bytes'],optimizer_step)
     if stage=='grpo':
         verify_grpo_source_lock(events_path,source['prefix_bytes'])
         plan=json.loads(Path(payload['config']['path']).read_text())

@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from officegym.training.checkpoints import checkpoint_fingerprint,record_export,verify_training_source
 from officegym.training.evidence import TrainingEvidence
-from lineage_fixtures import admit_fixture
+from lineage_fixtures import admit_fixture,authored_sft_updates
 
 
 class ExportSourceTests(unittest.TestCase):
@@ -17,6 +17,7 @@ class ExportSourceTests(unittest.TestCase):
         (exported/'model.safetensors').write_bytes(b'not-real-merged-weights')
         evidence=TrainingEvidence(root)
         self.admission=admit_fixture(root,evidence)
+        authored_sft_updates(evidence,7)
         source=evidence.checkpoint(native,7)
         report=root/'equivalence.json'
         report.write_text(json.dumps(dict(passed=True,checks=['fixture-not-actual-equivalence'],exported_checkpoint_sha256=checkpoint_fingerprint(exported)['checkpoint_sha256'],source_checkpoint_files_sha256=source['checkpoint_files_sha256'],optimizer_step=7)))
@@ -39,3 +40,12 @@ class ExportSourceTests(unittest.TestCase):
             (exported/'model.safetensors').write_bytes(b'changed-export')
             with self.assertRaisesRegex(ValueError,'does not bind exported'):
                 record_export(exported,root/'export.json',stage='sft',parent_hash=self.admission['parent_checkpoint_sha256'],training_manifest_hash=self.admission['data_manifest']['sha256'],versions={},equivalence_report=report,training_events=root/'training_events.jsonl',source_checkpoint=native,optimizer_step=7)
+
+    def test_positive_checkpoint_counter_without_optimizer_calls_is_not_formal_sft(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);native,exported,evidence,report=self.setup_source(root)
+            path=root/'training_events.jsonl'
+            records=[json.loads(line) for line in path.read_text().splitlines()]
+            path.write_text(''.join(json.dumps(row)+'\n' for row in records if not row['kind'].startswith('sft_optimizer_')))
+            with self.assertRaisesRegex(ValueError,'complete optimizer-call evidence'):
+                record_export(exported,root/'export.json',stage='sft',parent_hash=self.admission['parent_checkpoint_sha256'],training_manifest_hash=self.admission['data_manifest']['sha256'],versions={},equivalence_report=report,training_events=path,source_checkpoint=native,optimizer_step=7)
