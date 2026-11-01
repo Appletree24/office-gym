@@ -99,6 +99,7 @@ def make_trainer(plan,rows,root,tokenizer,callbacks):
 
 
 def train(plan_path,data_dir,out):
+    started=time.monotonic()
     plan = json.loads(Path(plan_path).read_text())
     manifest = validate_plan(plan,data_dir)
     for package in ('torch','transformers','trl','peft','datasets'):
@@ -110,17 +111,21 @@ def train(plan_path,data_dir,out):
     root.mkdir(parents=True,exist_ok=False)
     (root/'resolved_train_config.json').write_text(canonical(plan)+'\n')
     (root/'training_data_manifest.json').write_text(canonical(manifest)+'\n')
-    tokenizer = AutoTokenizer.from_pretrained(plan['model_path'],revision=plan['model_revision'],local_files_only=True,trust_remote_code=False)
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    tokenizer = AutoTokenizer.from_pretrained(plan['model_path'],revision=plan.get('tokenizer_revision',plan['model_revision']),local_files_only=True,trust_remote_code=False)
     payload=(Path(data_dir)/'samples.jsonl').read_bytes()
     if hashlib.sha256(payload).hexdigest()!=manifest['samples_sha256']:raise ValueError('training data changed before materialization')
     rows = [json.loads(line) for line in payload.splitlines()]
     validate_samples(rows,plan['max_sequence_tokens'])
-    started = time.monotonic()
+    from .tokenizer_admission import validate_runtime
+    tokenizer_check=validate_runtime(plan,manifest,data_dir,rows,tokenizer,deadline=started+plan['max_wall_seconds'])
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token=tokenizer.eos_token
+    tokenizer_check['padding_token_id']=tokenizer.pad_token_id
+    write_json(root/'runtime_tokenizer_check.json',tokenizer_check)
     evidence=TrainingEvidence(root)
     from .admission import admit_training
     admit_training(evidence,stage=plan.get('training_branch','sft'),data_manifest=Path(data_dir)/'manifest.json',config=root/'resolved_train_config.json')
+    evidence.event('tokenizer_data_check',0,tokenizer_check)
     class WallBudget(TrainerCallback):
         def on_step_end(self,args,state,control,**kwargs):
             if time.monotonic()-started>=plan['max_wall_seconds']:
@@ -132,7 +137,9 @@ def train(plan_path,data_dir,out):
         def on_save(self,args,state,control,**kwargs):
             if getattr(state,'is_world_process_zero',True):
                 evidence.checkpoint(root/'trainer'/('checkpoint-'+str(state.global_step)),state.global_step)
+    if time.monotonic()-started>=plan['max_wall_seconds']:raise TimeoutError('training wall budget exhausted before model initialization')
     trainer = make_trainer(plan,rows,root,tokenizer,[WallBudget()])
+    if time.monotonic()-started>=plan['max_wall_seconds']:raise TimeoutError('training wall budget exhausted during model initialization')
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
     overfit_report=None
@@ -162,7 +169,7 @@ def train(plan_path,data_dir,out):
     tokenizer.save_pretrained(root/'adapter')
     final_checkpoint=evidence.checkpoint(root/'adapter',trainer.state.global_step,kind='final_adapter')
     report = dict(checkpoint_interval_steps=plan['checkpoint_interval_steps'],final_checkpoint=final_checkpoint,training_branch=plan.get('training_branch','sft'),starting_checkpoint_sha256=manifest.get('starting_checkpoint_sha256'),metrics=result.metrics,optimizer_steps=trainer.state.global_step,wall_seconds=time.monotonic()-started,peak_allocated_bytes=torch.cuda.max_memory_allocated() if torch.cuda.is_available() else None,
-                  overfit_check=overfit_report,dataset_samples_sha256=manifest['samples_sha256'],export_equivalence_status='pending',dev_evaluation_status='pending')
+                  runtime_tokenizer_check=tokenizer_check,overfit_check=overfit_report,dataset_samples_sha256=manifest['samples_sha256'],export_equivalence_status='pending',dev_evaluation_status='pending')
     report=finite_logs(report)
     write_json(root/'train_result.json',report)
     return report

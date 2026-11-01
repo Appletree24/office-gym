@@ -278,3 +278,10 @@ Teacher 和 RS-SFT 采样现在会在保存的 resolved_sampling_config 中强�
 SFT 构建 manifest 现在为每条接收样本保存源运行目录中 `result.json`、`trajectory.jsonl`、`policy_isolation.json` 的 SHA256。SFT／RS-SFT 训练预检及后续训练血缘验证会重新核对这三个文件，并通过原有 teacher 提取器重新验证当前 Harness／grader 版本、完整成功、隔离证据及无压缩／恢复等条件，要求提取出的原始会话与 conversations.jsonl 完全一致。还核对 source_run、轨迹哈希、样本 ID、mask／label、长度、token 总量，拒绝重复运行路径和重复 token 序列。
 
 因此需要保留每条样本的原始运行证据及原路径；旧版数据 manifest 若缺来源文件清单，必须从保留的原始运行重建并重新人工审查，不能直接补一个 passed 字段。此检查证明保存的来源证据和训练数据相符，不提供独立供应商身份认证，也不能从可编辑本地文件证明真实外部调用；软件夹具的结构验收不能写成真实 teacher 证据。
+
+
+训练运行时 tokenizer 也需通过全量核对。`train-sft` 在加载模型权重前，从模型目录只读加载 tokenizer，比较数据 manifest 中的 revision、词表哈希、原始／mask 模板哈希、template_kwargs 和消息规范化方式，并对全部训练会话重算原始 token ID、role、assistant mask 和 labels，不限于人工检查的五条。即使未监督的用户／工具输入 token 被改变，也会拒绝训练。结果保存在 runtime_tokenizer_check.json 及训练事件中，包含实际检查的样本、token、因果监督位置和数据哈希。
+
+训练配置可单独指定 tokenizer_revision；未指定时使用 model_revision。例如 RS-SFT 的模型 revision 可为已合并 SFT checkpoint 的身份，而 tokenizer_revision 仍锁定原 tokenizer revision。若数据使用了 template_kwargs，训练配置也须显式匹配。检查后仅在缺少 pad token 时沿用既有 EOS padding 回退。训练墙钟预算现在从入口开始，覆盖预检及 tokenizer 核对，并在模型初始化前后检查；单次长操作仍需外层 watchdog 才能硬中断。
+
+artifacts/runtime_tokenizer_admission_probe_v1 用真实锁定 tokenizer 对五条参考夹具重算全部 24,562 token／2,515 个因果监督位置，错误 revision 或改动模板均被拒绝。此探针没有加载模型权重、没有 teacher 调用、没有人工批准，不能作为完整 SFT 训练验收。
