@@ -196,9 +196,42 @@ class Gateway:
         return ThreadingHTTPServer(('127.0.0.1',port),Handler)
 
 
+def snapshot(config,out):
+    """Copy a committed SQLite view without dispatching or requiring credentials."""
+    validate(config)
+    fingerprint=hashlib.sha256(json.dumps(config,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+    source=sqlite3.connect(Path(config['ledger_path']).resolve().as_uri()+'?mode=ro',uri=True,timeout=30)
+    try:
+        if source.execute('SELECT config_sha FROM policy WHERE id=1').fetchone()!=(fingerprint,):
+            raise ValueError('snapshot policy differs from existing ledger')
+        root=Path(out);root.mkdir(parents=True,exist_ok=False)
+        target=root/'ledger.sqlite';destination=sqlite3.connect(target)
+        try:source.backup(destination)
+        finally:destination.close()
+    finally:source.close()
+    view=CostLedger.__new__(CostLedger)
+    view.db=sqlite3.connect(target.resolve().as_uri()+'?mode=ro',uri=True)
+    view.policy_sha256=fingerprint
+    view.limit=int((amount(config['pricing']['max_cost_usd'])*NANO).to_integral_value(rounding=ROUND_FLOOR))
+    try:
+        if view.db.execute('PRAGMA integrity_check').fetchall()!=[('ok',)]:raise ValueError('snapshot integrity failure')
+        if view.db.execute('SELECT config_sha FROM policy WHERE id=1').fetchone()!=(fingerprint,):raise ValueError('snapshot policy mismatch')
+        summary=view.summary()
+    finally:view.close()
+    resolved=root/'pricing_policy.json';resolved.write_text(json.dumps(config,sort_keys=True,indent=2)+'\n')
+    report=dict(schema='officegym-teacher-cost-snapshot-v1',summary=summary,
+                files={path.name:hashlib.sha256(path.read_bytes()).hexdigest() for path in (target,resolved)},
+                scope='Committed ledger view; unknown usage remains reserved; declared token prices are not invoices.')
+    (root/'report.json').write_text(json.dumps(report,sort_keys=True,indent=2)+'\n')
+    return report
+
+
 def main():
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--config',required=True);parser.add_argument('--port',type=int,default=0);args=parser.parse_args()
-    config=json.loads(Path(args.config).read_text());gateway=Gateway(config);server=gateway.server(args.port);server.timeout=.5
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--config',required=True);parser.add_argument('--port',type=int,default=0);parser.add_argument('--snapshot-out');args=parser.parse_args()
+    config=json.loads(Path(args.config).read_text())
+    if args.snapshot_out:
+        print(json.dumps(snapshot(config,args.snapshot_out),sort_keys=True));return
+    gateway=Gateway(config);server=gateway.server(args.port);server.timeout=.5
     print(json.dumps(dict(endpoint=f'http://127.0.0.1:{server.server_port}/v1/chat/completions',model=config['model'],model_version=config['model_version'],cost_scope='declared token-price upper bounds')),flush=True)
     try:
         while time.monotonic()<gateway.deadline:server.handle_request()

@@ -138,3 +138,38 @@ class TeacherGatewayTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'redirects'):build_opener(NoRedirect()).open(request,timeout=2)
             self.assertEqual(hits,['/redirect'])
         finally:server.shutdown();server.server_close();thread.join(2)
+
+
+class TeacherCostSnapshotTests(unittest.TestCase):
+    def test_snapshot_preserves_known_and_unknown_without_keys_or_live_ledger_mutation(self):
+        from officegym.training.teacher_gateway import snapshot
+        import hashlib
+        import sqlite3
+        with tempfile.TemporaryDirectory() as directory:
+            value=config(directory);ledger=CostLedger(value)
+            self.assertEqual(ledger.db.execute('PRAGMA journal_mode=WAL').fetchone()[0],'wal')
+            identity=ledger.reserve('0'*64,10);ledger.observe(identity,dict(prompt_tokens=4,completion_tokens=2))
+            ledger.reserve('1'*64,10)
+            self.assertTrue(Path(value['ledger_path']+'-wal').exists())
+            before=ledger.summary()
+            with patch.dict(os.environ,{},clear=True):report=snapshot(value,Path(directory)/'export')
+            self.assertEqual(report['summary'],before)
+            self.assertEqual(report['summary']['unresolved_reserved_nanousd'],1020000)
+            self.assertEqual(report['summary']['known_token_price_nanousd'],8000)
+            for name,digest in report['files'].items():self.assertEqual(hashlib.sha256((Path(directory)/'export'/name).read_bytes()).hexdigest(),digest)
+            ledger.reserve('2'*64,10)
+            exported=sqlite3.connect(Path(directory)/'export/ledger.sqlite')
+            self.assertEqual(exported.execute('SELECT count(*) FROM calls').fetchone()[0],2);exported.close()
+            self.assertEqual(ledger.summary()['requests'],3);ledger.close()
+            with self.assertRaises(FileExistsError):snapshot(value,Path(directory)/'export')
+
+    def test_missing_source_or_changed_policy_cannot_create_snapshot(self):
+        from officegym.training.teacher_gateway import snapshot
+        import sqlite3
+        with tempfile.TemporaryDirectory() as directory:
+            value=config(directory);out=Path(directory)/'export'
+            with self.assertRaises(sqlite3.OperationalError):snapshot(value,out)
+            self.assertFalse(out.exists());self.assertFalse(Path(value['ledger_path']).exists())
+            ledger=CostLedger(value);ledger.close();value['max_requests']+=1
+            with self.assertRaisesRegex(ValueError,'policy differs'):snapshot(value,out)
+            self.assertFalse(out.exists())

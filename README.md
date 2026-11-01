@@ -220,3 +220,12 @@ PYTHONPATH=src .venv/bin/python -m officegym.training.teacher_gateway --config /
 将打印的 loopback endpoint、相同 model/model_version 和本地 gateway_key_env 填入已有 ChatPolicy 采样配置。上游凭据只由可信网关读取。认证后的 GET `/budget` 可读取账本汇总。SQLite 账本在发出请求前原子预留全额输入上限及本次输出上限的费用；并发调用共享账本，重启保留消耗且拒绝改变原账本策略。确认的 usage 可释放未用预留；超时、缺失 usage 等未知消耗保留全额预留。模型版本或 token 上限违约记录后阻止后续请求。网关不自动重试、不跟随重定向，并限制启动后的服务寿命。
 
 此费用口径是所声明 token 价格的上界，不是供应商账单。供应商必须以 prompt_tokens/completion_tokens 返回全部计费 token（包括推理 token），且遵守所填上下限；字节及 framing 检查不是通用 tokenizer 证明。价格需覆盖所选服务档位等 token 费用，税费、非 token 费用和供应商违约不在保证范围内。这里只验证了软件上游、真实本地 HTTP、并发及重启协议；尚未核实真实供应商兼容性。软件 fixture 网关会标记来源，真实 ChatPolicy 拒绝用它生成 teacher 数据。真实 teacher 选择、费用预算及采样仍待提供，当前没有付费调用。
+
+
+费用账本可在网关运行时或结束后导出，无需提供任何密钥，也不会启动服务或发出请求：
+
+```bash
+PYTHONPATH=src .venv/bin/python -m officegym.training.teacher_gateway --config /absolute/operator-gateway.json --snapshot-out /absolute/NEW_SNAPSHOT_DIRECTORY
+```
+
+命令只读打开原账本，通过 SQLite backup 导出已提交的一致视图（含 WAL 中的提交），保存 `ledger.sqlite`、`pricing_policy.json` 及含文件 SHA256 的 `report.json`。输出目录必须全新；源账本缺失或配置指纹不符会拒绝执行。快照保留请求哈希、已确认 token usage、错误类型和未知预留，不含请求正文或密钥值。它用于核对声明价格下的消耗；仅有快照不能证明真实模型调用、商业价格或账单。后续调用不会改变已导出的快照。
