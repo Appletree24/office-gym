@@ -4,7 +4,7 @@ import json
 import sqlite3
 from officegym.env.world import canonical
 from officegym.env.events import process_due, next_visible, poll
-from .schema import validate, WRITES, TOOL_SCHEMA_VERSION
+from .schema import validate, WRITES, TOOL_SCHEMA_VERSION, SCHEMAS
 
 
 class ToolError(Exception):
@@ -53,32 +53,37 @@ class Dispatcher:
                 if self.meta('sim_time') > self.meta('deadline'):
                     error = 'BUDGET_EXHAUSTED'
                 else:
-                    self.db.execute('SAVEPOINT action')
-                    try:
-                        validate(name, arguments, operation_id)
-                        digest = hashlib.sha256(canonical([name, arguments, self.meta('principal_id')]).encode()).hexdigest()
-                        cached = self.db.execute('SELECT * FROM operations WHERE operation_id=?', (operation_id,)).fetchone() if operation_id else None
-                        if cached:
-                            if cached['request_sha256'] != digest:
-                                raise ToolError('IDEMPOTENCY_CONFLICT')
-                            data = json.loads(cached['response_json'])
-                        else:
-                            if name in WRITES and not operation_id:
-                                raise ToolError('INVALID_ARGUMENT')
-                            data = self.execute(name, arguments)
-                            if name in WRITES:
-                                self.db.execute('INSERT INTO operations VALUES (?,?,?,?,?,?)',
-                                    (operation_id, self.meta('principal_id'), name, digest, canonical(data), self.meta('sim_time')))
-                        if self.pending_outbox:
-                            self.db.executemany('INSERT INTO outbox VALUES (?,?,?,?,?,?,?,?,?)', self.pending_outbox)
-                        process_due(self)
-                        self.db.execute('RELEASE action')
-                    except (ToolError, KeyError, TypeError, ValueError, sqlite3.IntegrityError) as exc:
-                        self.db.execute('ROLLBACK TO action')
-                        self.db.execute('RELEASE action')
-                        error = str(exc) if isinstance(exc, ToolError) else 'INVALID_ARGUMENT'
+                    data, error = self.action(name, arguments, operation_id, scheduled=True)
         return {'ok': error is None, 'data': data, 'error': {'code': error} if error else None,
                 'meta': {'sim_time': self.meta('sim_time'), 'observation_id': f"obs_{self.meta('tool_calls'):06d}", 'tool_schema_version': TOOL_SCHEMA_VERSION}}
+
+    def action(self, name, arguments, operation_id, *, scheduled=False):
+        """Apply business validation, mutation and receipt in the caller's transaction."""
+        data, error = None, None
+        self.db.execute('SAVEPOINT action')
+        try:
+            validate(name, arguments, operation_id)
+            digest = hashlib.sha256(canonical([name, arguments, self.meta('principal_id')]).encode()).hexdigest()
+            cached = self.db.execute('SELECT * FROM operations WHERE operation_id=?', (operation_id,)).fetchone() if operation_id else None
+            if cached:
+                if cached['request_sha256'] != digest or cached['principal_id'] != self.meta('principal_id'):
+                    raise ToolError('IDEMPOTENCY_CONFLICT')
+                data = json.loads(cached['response_json'])
+            else:
+                data = self.execute(name, arguments)
+                if name in WRITES:
+                    self.db.execute('INSERT INTO operations VALUES (?,?,?,?,?,?)',
+                        (operation_id, self.meta('principal_id'), name, digest, canonical(data), self.meta('sim_time')))
+            if self.pending_outbox:
+                self.db.executemany('INSERT INTO outbox VALUES (?,?,?,?,?,?,?,?,?)', self.pending_outbox)
+            if scheduled:
+                process_due(self)
+            self.db.execute('RELEASE action')
+        except (ToolError, KeyError, TypeError, ValueError, sqlite3.IntegrityError) as exc:
+            self.db.execute('ROLLBACK TO action')
+            self.db.execute('RELEASE action')
+            error = str(exc) if isinstance(exc, ToolError) else 'INVALID_ARGUMENT'
+        return data, error
 
     def execute(self, name, args):
         if name in ('mail.search', 'mail.get_thread', 'mail.send'):
@@ -132,3 +137,35 @@ class Dispatcher:
                 append_mutation(self,name,'board','1',row['version']+1,before,{'version':row['version']+1,'content':content},[self.meta('principal_id')])
             return {'version': row['version'] + (name == 'board.patch'), 'content': content}
         raise ToolError('INVALID_ARGUMENT')
+
+
+APPLICATION_TOOLS = frozenset(name for name in SCHEMAS
+    if name not in ('office.get_context', 'board.read', 'board.patch',
+                    'clock.wait', 'task.finish', 'operations.get'))
+
+
+class BusinessDispatcher(Dispatcher):
+    """Office simulation business API without episode budgets or automatic events."""
+
+    def __init__(self, world):
+        self.world, self.db = world, world.db
+        self._now = None
+
+    def meta(self, key):
+        if key == 'sim_time' and self._now is not None:
+            return self._now
+        return super().meta(key)
+
+    def call(self, name, arguments, operation_id=None, *, now):
+        if type(now) is not int or now < 0:
+            raise ValueError('trusted UTC timestamp required')
+        if name not in APPLICATION_TOOLS and name != 'operations.get':
+            return {'ok':False,'data':None,'error':{'code':'UNKNOWN_TOOL'}}
+        self.operation_id, self.pending_outbox, self._now = operation_id, [], now
+        try:
+            with self.db:
+                self.set_meta('tool_calls', self.meta('tool_calls') + 1)
+                data, error = self.action(name, arguments, operation_id)
+            return {'ok':error is None,'data':data,'error':{'code':error} if error else None}
+        finally:
+            self._now = None

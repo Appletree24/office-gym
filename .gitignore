@@ -8,3 +8,5 @@ build/
 .venv-train/
 
 .venv-rl/
+configs/personal-agent.local.json
+dist/

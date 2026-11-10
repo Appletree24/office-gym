@@ -7,6 +7,10 @@ from officegym.tools.schema import tool_schemas
 
 
 def build_server(socket_path):
+    # mcp.server.lowlevel 是MCP Python SDK提供的**低级别服务器实现模块**
+    # 区别于自动处理装饰器注册、协议适配的高级别服务器，
+    # lowlevel需手动处理MCP协议的请求分发、工具/资源注册等底层逻辑，
+    # 但灵活性更高，适合需要深度自定义MCP服务器行为的场景
     from mcp.server.lowlevel import Server
     from mcp.types import Tool,CallToolResult
     server = Server('officegym')

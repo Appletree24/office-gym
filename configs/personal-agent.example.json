@@ -1,0 +1,23 @@
+{
+  "user_id": "local-user",
+  "database": "../artifacts/personal/agent.sqlite",
+  "model": {
+    "endpoint": "https://api.deepseek.com/chat/completions",
+    "model": "deepseek-chat",
+    "model_version": "configured-provider-model",
+    "api_key_env": "DEEPSEEK_API_KEY",
+    "max_output_tokens": 1024,
+    "temperature": 0
+  },
+  "adapters": [],
+  "budget": {
+    "calls": 16,
+    "generations": 24,
+    "output_tokens": 8192,
+    "context_bytes": 65536,
+    "output_bytes": 32768,
+    "wall_seconds": 60,
+    "lease_seconds": 90,
+    "confirmation_seconds": 900
+  }
+}
